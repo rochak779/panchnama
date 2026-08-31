@@ -39,3 +39,63 @@ checks:
   - ruleId: availability.automation-blocked.v1
     enabled: true
     parameters: {}
+
+  - ruleId: availability.access-restricted.v1
+    enabled: true
+    parameters: {}
+    # Session 7: surfaces a 401/AUTH_REQUIRED or 403 on the entry page as a
+    # low-confidence, not-assessable, pending-review finding — never a
+    # confirmed failure (section 7.1's explicit 401/403/CAPTCHA carve-out).
+
+  - ruleId: broken_link.repeated-failure.v1
+    enabled: true
+    parameters: {}
+    # Session 7 (section 7.2). Groups failing LinkObservations by
+    # normalizedDestinationUrl; severity is elevated when the linking
+    # portal is itself backed by an official_directory/official_page
+    # inventory source (see docs/session-log.md for the documented
+    # per-link-provenance simplification).
+
+  - ruleId: https.certificate-failure.v1
+    enabled: true
+    parameters: {}
+    # Session 7 (section 7.3). Classifies TLS_CERT_EXPIRED/TLS_HOST_MISMATCH
+    # errorCodes already produced by the crawler's fetch layer.
+
+  - ruleId: https.no-tls-upgrade.v1
+    enabled: true
+    parameters: {}
+    # Session 7 (section 7.3). Flags an entry page whose final observed
+    # destination does not use HTTPS.
+
+  - ruleId: freshness.no-signal.v1
+    enabled: true
+    parameters: {}
+    # Session 7 (section 7.4). Cautious, review-required output only —
+    # PageObservation does not persist raw page text at this session's
+    # boundary, so this always emits "no_freshness_signal", never a
+    # definitive staleness claim (see docs/session-log.md).
+
+  - ruleId: directory_mismatch.unavailable-destination.v1
+    enabled: true
+    parameters: {}
+    # Session 7 (section 7.5). Cross-references this run's own availability
+    # findings against directory-sourced portals.
+
+  - ruleId: directory_mismatch.listed-vs-observed.v1
+    enabled: true
+    parameters: {}
+    # Session 7 (section 7.5). Best-effort name/host disagreement heuristic
+    # between a directory listing and the observed portal.
+
+  - ruleId: directory_mismatch.official-portal-not-listed.v1
+    enabled: true
+    parameters: {}
+    # Session 7 (section 7.5). Flags a verified official portal with no
+    # official_directory-typed inventory source.
+
+  - ruleId: crawl_coverage.summary.v1
+    enabled: true
+    parameters: {}
+    # Session 7. One advisory finding per portal per run summarizing pages
+    # attempted/observed and what was skipped and why.

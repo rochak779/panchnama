@@ -4,14 +4,16 @@ import { runSourcesValidate } from "./commands/sources-validate.js";
 import { runInventoryBuild } from "./commands/inventory-build.js";
 import { runInventoryValidate } from "./commands/inventory-validate.js";
 import { runCrawlCommand } from "./commands/crawl.js";
+import { runAnalyzeCommand } from "./commands/analyze.js";
+import { runAnalyzeFixture } from "./analyze/fixture.js";
 
 /**
  * `pnpm audit <command>` dispatcher — implementation.md section 9.1.
  *
  * Session 2 implemented `sources:validate`. Session 3 added
  * `inventory:build` and `inventory:validate`. Session 4 adds `crawl`.
- * Later sessions add `analyze`, `review:validate`, `publish`, `export`,
- * and `report` here.
+ * Session 7 adds `analyze`. Later sessions add `review:validate`,
+ * `publish`, `export`, and `report` here.
  */
 
 /** Repo-root directory, resolved relative to this module's own location
@@ -38,6 +40,14 @@ function defaultInventoryOutDir(): string {
 
 function defaultCrawlOutDir(): string {
   return join(repoRootDir(), "data", "raw", "crawl");
+}
+
+function defaultAnalysisOutDir(): string {
+  return join(repoRootDir(), "data", "raw", "analysis");
+}
+
+function defaultEvidenceOutDir(): string {
+  return join(repoRootDir(), "data", "evidence");
 }
 
 export interface CliResult {
@@ -72,6 +82,8 @@ const USAGE_LINES = [
   "  inventory:validate --state assam [--run-id <id>]",
   "  crawl --state assam [--run-id <id>] [--dry-run]",
   "  crawl --portal <portal-id> [--max-pages <n>] [--dry-run]",
+  "  analyze --run-id <id> [--inventory-run-id <id>] [--force]",
+  "  analyze --portal <portal-id> --fixture",
   "",
   "common options: --config-dir <path> --seed-dir <path> --out-dir <path>",
 ];
@@ -212,6 +224,65 @@ export async function runCli(argv: string[]): Promise<CliResult> {
         dryRun: hasFlag(rest, "dry-run"),
       });
       return result;
+    }
+
+    case "analyze": {
+      const portalFlag = readFlag(rest, "portal");
+      const fixtureFlag = hasFlag(rest, "fixture");
+      if (portalFlag.error) {
+        return { exitCode: 1, lines: [portalFlag.error] };
+      }
+
+      if (fixtureFlag) {
+        if (portalFlag.value === undefined) {
+          return { exitCode: 1, lines: ["analyze --fixture requires --portal <portal-id>"] };
+        }
+        return runAnalyzeFixture({ configDir, portalId: portalFlag.value });
+      }
+
+      const runIdFlag = readFlag(rest, "run-id");
+      const inventoryRunIdFlag = readFlag(rest, "inventory-run-id");
+      const crawlOutDirFlag = readFlag(rest, "crawl-out-dir");
+      const inventoryOutDirFlag = readFlag(rest, "inventory-out-dir");
+      const analysisOutDirFlag = readFlag(rest, "out-dir");
+      const evidenceOutDirFlag = readFlag(rest, "evidence-out-dir");
+      for (const flag of [
+        runIdFlag,
+        inventoryRunIdFlag,
+        crawlOutDirFlag,
+        inventoryOutDirFlag,
+        analysisOutDirFlag,
+        evidenceOutDirFlag,
+      ]) {
+        if (flag.error) {
+          return { exitCode: 1, lines: [flag.error] };
+        }
+      }
+
+      return runAnalyzeCommand({
+        configDir,
+        crawlOutDir:
+          crawlOutDirFlag.value !== undefined
+            ? resolve(crawlOutDirFlag.value)
+            : defaultCrawlOutDir(),
+        inventoryOutDir:
+          inventoryOutDirFlag.value !== undefined
+            ? resolve(inventoryOutDirFlag.value)
+            : defaultInventoryOutDir(),
+        analysisOutDir:
+          analysisOutDirFlag.value !== undefined
+            ? resolve(analysisOutDirFlag.value)
+            : defaultAnalysisOutDir(),
+        evidenceOutDir:
+          evidenceOutDirFlag.value !== undefined
+            ? resolve(evidenceOutDirFlag.value)
+            : defaultEvidenceOutDir(),
+        ...(runIdFlag.value !== undefined ? { runId: runIdFlag.value } : {}),
+        ...(inventoryRunIdFlag.value !== undefined
+          ? { inventoryRunId: inventoryRunIdFlag.value }
+          : {}),
+        overwrite: hasFlag(rest, "force"),
+      });
     }
 
     case undefined:

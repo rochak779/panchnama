@@ -1906,3 +1906,376 @@ o.fetchMode === "browser")`) — this is what
   `PublishedPortalAssessment.crawlCoverage.browserFallbackUsed` should be
   derived from when Session 8 wires publication; no new schema field was
   needed to make this signal available.
+
+---
+
+## Session 7 — Deterministic audit rules
+
+**Date:** 2026-08-31
+**Goal:** Convert raw observations into explainable candidate findings
+(implementation.md section 14, "Session 7").
+
+### Files changed
+
+- `packages/audit-core/src/rules/types.ts` (new) — shared rule-engine
+  types: `Rule`, `FindingDraft`, `EvidenceDraft`, `PortalRuleInput`,
+  `AnalysisContext`.
+- `packages/audit-core/src/rules/params.ts` (new) — `readIntParam` helper
+  for reading typed thresholds out of `config/checks.yaml`'s
+  `Record<string, unknown>` parameters.
+- `packages/audit-core/src/rules/availability.ts` (new) — six rules:
+  `availability.unavailable.v1`, `availability.server-error.v1`,
+  `availability.not-found.v1`, `redirect.cross-domain.v1`,
+  `availability.automation-blocked.v1`, and a new
+  `availability.access-restricted.v1` (the 401/403 carve-out).
+- `packages/audit-core/src/rules/broken-link.ts` (new) —
+  `broken_link.repeated-failure.v1`.
+- `packages/audit-core/src/rules/https.ts` (new) —
+  `https.certificate-failure.v1`, `https.no-tls-upgrade.v1`.
+- `packages/audit-core/src/rules/freshness.ts` (new) —
+  `freshness.no-signal.v1` (see "Freshness" decision below).
+- `packages/audit-core/src/rules/directory-mismatch.ts` (new) — three
+  rules: `directory_mismatch.unavailable-destination.v1`,
+  `directory_mismatch.listed-vs-observed.v1`,
+  `directory_mismatch.official-portal-not-listed.v1`.
+- `packages/audit-core/src/rules/crawl-coverage.ts` (new) —
+  `crawl_coverage.summary.v1`.
+- `packages/audit-core/src/rules/registry.ts` (new) — `ALL_RULES`,
+  `getRuleById`, `selectEnabledRules` (turns a loaded `ChecksConfig`-shaped
+  array into the rules this registry actually implements), and
+  `runPortalRules` (runs a portal's selected rules in a fixed order,
+  threading each rule's output into later rules' `priorFindings`).
+- `packages/audit-core/src/technical-health.ts` (new) —
+  `deriveProvisionalTechnicalHealth` (see "Provisional vs. final technical
+  health" below).
+- `packages/audit-core/src/suggestion.ts` (new) — `SUGGESTION_TEMPLATES`
+  (section 7.8's table, documented) and `AVAILABILITY_ONLY_RULE_IDS`, used
+  by the `review_retirement` regression guard.
+- `packages/audit-core/src/index.ts` — exports every new module; updated
+  doc comment (this session populated the package for real, no longer a
+  placeholder).
+- `packages/audit-core/package.json` — added `@panchnama/schema` and
+  `zod` as real dependencies (previously audit-core had none; rules
+  operate on schema types).
+- Table-driven test files for every rule module, plus
+  `technical-health.test.ts` and `suggestion.test.ts` (the
+  `review_retirement` regression guard).
+- `packages/audit-cli/src/analyze/materialize.ts` (new) — turns a rule's
+  `FindingDraft` into a real `Finding` + one `EvidenceArtifact` per
+  `EvidenceDraft`, writing each evidence draft's serialized content to
+  `data/evidence/<runId>/analysis/<evidenceId>.json`.
+- `packages/audit-cli/src/analyze/write.ts` (new) — atomic write for
+  `data/raw/analysis/<runId>/` (`findings.jsonl`,
+  `evidence-artifacts.jsonl`, `manifest.json`,
+  `provisional-technical-health.json`), mirroring `crawl/write.ts`'s
+  stage-then-move convention; supports an explicit `overwrite` override
+  (unlike `crawl`'s unconditional refusal) per this session's brief.
+- `packages/audit-cli/src/analyze/run.ts` (new) — `runAnalyze`: loads the
+  crawl run (`AuditRun`/`PageObservation`/`LinkObservation`/skip-log) and
+  the referenced inventory run (`Portal`/`InventorySource`), loads
+  `checks.yaml`/`crawl-policy.yaml`, runs every enabled+implemented rule
+  per portal, materializes findings/evidence, validates every record
+  against the Zod schemas (including that every `evidenceRefs` entry
+  resolves to a materialized artifact) before writing.
+- `packages/audit-cli/src/analyze/fixture.ts` (new) — `runAnalyzeFixture`,
+  the `--portal <id> --fixture` dev command (see "`--fixture` meaning"
+  below).
+- `packages/audit-cli/src/commands/analyze.ts` (new), plus
+  `packages/audit-cli/src/commands/analyze.test.ts` (new, end-to-end:
+  real fixture HTTP servers + real `runCrawl` + real `runAnalyze`).
+- `packages/audit-cli/src/cli.ts` — added the `analyze` case (both
+  `--run-id` and `--portal --fixture` forms) to the dispatcher switch.
+- `config/checks.yaml` — added rule-id entries for every rule this
+  session implements beyond the original five illustrative entries
+  (`availability.access-restricted.v1`, `broken_link.repeated-failure.v1`,
+  `https.certificate-failure.v1`, `https.no-tls-upgrade.v1`,
+  `freshness.no-signal.v1`, the three `directory_mismatch.*` rules,
+  `crawl_coverage.summary.v1`), each with a comment explaining what it
+  does — config and code are kept in sync (no rule without a config entry,
+  no config entry without an implementing rule).
+
+### Decisions
+
+- **Rule-registry structure.** A rule is `{ ruleId, version, category,
+description, evaluate(input, context, parameters) }`, pure and
+  side-effect-free. `packages/audit-core` never allocates a record id,
+  never materializes evidence, never touches disk — it only returns
+  `FindingDraft[]` (a finding shape carrying `EvidenceDraft[]` instead of
+  resolved `evidenceRefs`). `packages/audit-cli`'s `analyze/materialize.ts`
+  is the ONLY place ids are minted and evidence is written to disk,
+  matching the pure-logic-in-core / orchestration-in-cli split every prior
+  session established. `directory_mismatch` rules run last (via
+  `ALL_RULES`'s fixed order) because `unavailable-destination.v1`
+  cross-references availability findings already produced earlier in the
+  same portal's pipeline run, via `PortalRuleInput.priorFindings`.
+- **"Spaced attempts" interpretation, and a real correction discovered
+  during end-to-end testing.** The original plan assumed a real crawl run
+  might contain multiple `PageObservation` records for the same entry URL
+  (one per attempt). Building the end-to-end test revealed this is wrong:
+  `frontier.ts`'s frontier visits each distinct URL once per run, and
+  `http-fetcher.ts`'s own retry loop (which retries
+  `DNS_FAILURE`/`CONNECT_TIMEOUT`/`READ_TIMEOUT`/`HTTP_SERVER_ERROR`, up to
+  `maxAttemptsAvailabilityCritical`, but never 404/410) already folds
+  retries into ONE final `PageObservation` whose `attempt` field records
+  the retry count. The three attempt-counting availability rules
+  (`unavailable`, `server-error`, `not-found`) were fixed to compare
+  against `max(matching-observation-count, matching-observation.attempt)`
+  — this handles both the real single-observation-with-a-retry-count case
+  and (for rule-boundary unit tests, and a possible future
+  `analyze --compare-run` capability) a hypothetical multi-observation
+  case identically. This is still a documented proxy for section 7.1's
+  "3 spaced attempts" (spread over real time), not true multi-run temporal
+  spacing — every triggered `availability.unavailable.v1` finding carries
+  this limitation explicitly in its `limitations` array. A consequence
+  worth flagging: because 404/410 is never retried by the fetch layer,
+  `availability.not-found.v1` cannot fire from a single real crawl run
+  under ordinary circumstances (its own `limitations` array says so) —
+  this rule is effectively dormant until either the crawler visits an
+  entry URL more than once in a run, or a future cross-run comparison
+  capability is built. Its boundary logic is still exercised directly by
+  unit tests against synthetic multi-observation input.
+- **401/403/CAPTCHA/login-wall carve-out.** A raw 401
+  (`errorCode: "AUTH_REQUIRED"`) or 403 (`errorCode: "HTTP_CLIENT_ERROR"`,
+  `httpStatus: 403`) on the entry page never counts toward
+  `availability.unavailable.v1`/`server-error.v1`/`not-found.v1`'s failure
+  counts. A new rule, `availability.access-restricted.v1` (added to
+  `config/checks.yaml` since it wasn't in the original five illustrative
+  entries), surfaces it instead as `checkStatus: "not_assessable"`,
+  `confidence: "low"`, `severity` never `"critical"`, `reviewStatus:
+"pending_review"` — matching section 7.1's explicit instruction.
+- **Freshness-signal raw-body-availability resolution.** `PageObservation`
+  (§5.5) stores only `bodyDigest` (a hash), `title`, `canonical`, and
+  `language` — never raw page text — and Sessions 4-6 never persisted raw
+  crawled HTML bodies to disk anywhere `analyze` could read them. This
+  session took choice (a) from its own brief: skip real content-level
+  freshness extraction entirely rather than extend Session 4-6's crawler
+  output for a capability outside this session's explicit implement list.
+  `freshness.no-signal.v1` emits only `no_freshness_signal` (never
+  `potentially_stale`, since no actual signal is ever inspected), always
+  `reviewStatus: "pending_review"`, with the exact reason recorded in
+  `limitations`. Real content-level freshness extraction (last-updated
+  dates, copyright years, dated notices) remains a documented gap for a
+  future session/ADR — if pursued, the most defensible approach is
+  probably adding raw-body persistence to the crawler (Session 4/5
+  territory) as a small, explicitly-flagged additive change, not doing
+  text extraction blind inside `analyze` from data that doesn't exist.
+- **Broken-link severity simplification.** Section 7.2 asks for elevated
+  severity for "prominent service links and links from official
+  directories," but individual `LinkObservation`s carry no per-link
+  directory-provenance tag. `broken_link.repeated-failure.v1` uses two
+  coarser proxies instead: (1) whether the _linking portal itself_ is
+  backed by an `official_directory`/`official_page`-typed `InventorySource`
+  (via `Portal.sourceRefs`, cross-referenced against the loaded inventory
+  run — `analyze` does load `data/raw/inventory/<runId>/`) → critical; (2)
+  otherwise, breadth (≥3 distinct source pages linking to the same dead
+  destination) → significant; single unofficial broken link → advisory.
+  Documented as a real simplification versus true per-link provenance in
+  every triggered finding's `limitations`.
+- **Crawl-coverage representation.** One low-severity/advisory
+  `crawl_coverage.summary.v1` finding per portal per run (not folded
+  silently into every other finding's `limitations`), summarizing pages
+  observed vs. the configured `maxPagesPerPortal`/`maxDepth`, and what was
+  skipped and why (from the crawl run's own `skip-log.json`, filtered by
+  `portalId`). `checkStatus` is `"not_applicable"` when coverage was
+  complete, `"warning"` when a limit was hit or something was skipped.
+- **Provisional vs. final technical health.** Section 7.7 defines
+  `TechnicalHealth` in terms of _reviewed_ findings, and no
+  `ReviewDecision` records exist until Session 8. `deriveProvisional
+TechnicalHealth` (in `technical-health.ts`) is explicitly documented, in
+  its own doc comment and in `analyze`'s output file name
+  (`provisional-technical-health.json`) and manifest `limitations`, as a
+  PRE-REVIEW, PROVISIONAL computation over this session's _candidate_
+  findings — never the final published value shown to end users. Session
+  8 must recompute the real `TechnicalHealth` from reviewed-only findings.
+- **Evidence-artifact materialization convention.** Every `EvidenceDraft`
+  a rule returns is written by `analyze/materialize.ts` to
+  `data/evidence/<runId>/analysis/<evidenceArtifactId>.json` (the
+  serialized JSON content the rule built, e.g. a redirect chain or a set
+  of failing observations), mirroring Session 6's
+  `data/evidence/<runId>/<portalId>/<pageObservationId>.png` screenshot
+  convention. Every materialized `EvidenceArtifact` gets
+  `privacyReviewed: false` (no automated evidence is privacy-reviewed
+  until Session 8's human review), and `analyze` explicitly asserts (both
+  in code, before writing, and in a dedicated end-to-end test) that every
+  generated `Finding.evidenceRefs` value resolves to one of the artifacts
+  it just materialized.
+- **`analyze` output location and overwrite policy.** `data/raw/analysis/
+<runId>/` (mirroring `data/raw/crawl/<runId>/` and `data/raw/inventory/
+<runId>/`), with a `latest` pointer file matching the established
+  convention. Unlike `crawl`'s unconditional refusal to overwrite,
+  `analyze` accepts an explicit `--force` CLI flag / `overwrite: true`
+  param — matching this session's brief ("never overwrites ... without an
+  explicit override," implying an override path should exist). Without
+  `--force`, a second `analyze --run-id <same-id>` refuses and exits
+  non-zero (covered by a dedicated test).
+- **`--fixture` flag meaning.** `analyze --portal <portal-id> --fixture`
+  runs the rule registry against a small, deterministic, BUILT-IN
+  observation set for one synthetic portal (a portal that fails 3 attempts
+  and has one broken link) — not real crawl output on disk. It prints
+  candidate findings and provisional technical health to stdout and never
+  writes to `data/raw/`. This is a fast rule-iteration/dev tool, not a
+  substitute for the real `--run-id` path.
+
+### Tests run and results
+
+```
+pnpm lint       — pass (0 errors)
+pnpm typecheck  — pass (6/6 packages)
+pnpm test       — pass (391 tests total: apps/web 2, database 1, schema 64,
+                   ui 1, audit-core 136 [18 test files, incl. new
+                   rules/*.test.ts, technical-health.test.ts,
+                   suggestion.test.ts], audit-cli 181 [28 test files, incl.
+                   new commands/analyze.test.ts real end-to-end crawl+
+                   analyze cases])
+pnpm build      — pass (6/6 packages + Next.js app)
+pnpm format     — applied (formatting only, no behavior changes)
+```
+
+Key new tests:
+
+- Table-driven boundary tests (one-below / at-threshold / above-threshold)
+  for every availability rule, `broken_link`, `https`, `freshness`,
+  `crawl_coverage`, and all three `directory_mismatch` rules.
+- `suggestion.test.ts`: runs every availability rule against
+  worst-case/heavy-failure fixtures and asserts none ever produces
+  `suggestedAction: "review_retirement"` (implementation.md §7.8/§5.14).
+- `technical-health.test.ts`: table-driven boundary cases for
+  unavailable/degraded/healthy/not_assessable, including precedence when
+  multiple signals are present at once.
+- `commands/analyze.test.ts`: real end-to-end test — starts two real
+  local HTTP fixture servers, runs a real `runCrawl` against them
+  (one healthy portal with one broken external link, one totally
+  unreachable portal), then runs real `runAnalyze` on that crawl's actual
+  output, and asserts on schema validity, evidence-ref resolution,
+  specific expected findings per portal, and the `review_retirement`
+  guard — plus a second test asserting `analyze` refuses to silently
+  overwrite existing output.
+
+### Manual verification (real crawl + analyze against local fixture servers)
+
+Ran the compiled CLI's `runCrawl` then `runAnalyze` directly (test-only
+`ssrf.allowLoopbackForTests` override, same pattern as Sessions 4-6)
+against two local fixture portals: one healthy portal whose only page
+links to a service that returns 503, and one portal pointing at a closed
+port (immediate connection failure).
+
+```
+crawl run: assam-manual-s7-crawl
+portals: 2
+  [partial] manual-good-portal — 2 page(s)
+  [failed] manual-unreachable-portal — 1 page(s)
+status: failed
+page observations: 3
+link observations: 1
+
+analyze run: assam-manual-s7-crawl
+portals analyzed: 2
+rules enabled and implemented: 14
+findings: 9
+evidence artifacts: 9
+```
+
+Selected findings (full JSON abbreviated to the essentials each finding
+must explain, per this session's exit criterion):
+
+```
+[manual-good-portal] broken_link.repeated-failure.v1 | broken_link
+  severity=critical confidence=high action=repair
+  "The destination http://127.0.0.1:58881/service failed from 1 source
+   page(s) on this portal (HTTP_SERVER_ERROR)."
+  evidenceRefs: [evidence-finding-...-broken_link.repeated-failure.v1-1-2]
+  limitations: [elevated because the linking portal is officially sourced,
+   not per-link provenance]
+
+[manual-unreachable-portal] availability.unavailable.v1 | availability
+  severity=critical confidence=high action=repair
+  "Unavailable during 3 checks on 2026-08-31."
+  evidenceRefs: [evidence-finding-...-availability.unavailable.v1-11-12]
+  limitations: ["Spaced attempts" = within-run retry proxy, documented]
+
+[manual-unreachable-portal] directory_mismatch.unavailable-destination.v1
+  severity=advisory confidence=medium action=manual_assessment
+  "The official directory linked to a destination that returned an
+   availability failure (availability.unavailable.v1)."
+```
+
+`provisional-technical-health.json`:
+
+```json
+{ "manual-good-portal": "degraded", "manual-unreachable-portal": "unavailable" }
+```
+
+No finding across either portal ever set `suggestedAction:
+"review_retirement"`. All 9 findings and 9 evidence artifacts validated
+against the Zod schemas, and every `evidenceRefs` entry resolved.
+
+### Known limitations (deferred, explicit)
+
+- True multi-run temporal spacing for availability rules ("3 spaced
+  attempts" over real elapsed time, using `minSpacingMinutes`) is not
+  implemented — this session uses within-run retry-attempt counts as a
+  documented proxy. A future `analyze --compare-run <id>` capability could
+  add this without changing rule shapes.
+- `availability.not-found.v1` cannot fire from real single-run crawl data
+  under ordinary circumstances, because the fetch layer never retries
+  404/410 — it is exercised only by direct unit tests against synthetic
+  input. This is a structural consequence of the single-run limitation
+  above, not a bug.
+- Real content-level freshness-signal extraction (last-updated dates,
+  copyright years, dated notices) is not implemented — `analyze` has no
+  raw page text to inspect, only structured `PageObservation` fields.
+  Every portal gets only `freshness.no-signal.v1`, never
+  `potentially_stale`.
+- Broken-link severity elevation uses the linking portal's own
+  inventory-source type as a proxy for "link from an official directory,"
+  not true per-link directory provenance (not tracked at the
+  `LinkObservation` level).
+- "Multiple directory entries appear to represent the same portal"
+  (§7.5's fourth bullet) is not detected this session.
+- No rule in this registry auto-generates a `possible_overlap` finding —
+  section 7.6's manual-review-first workflow (a completed, human-authored
+  `PortalOverlapComparison`) is Session 8's job.
+- `deriveProvisionalTechnicalHealth`'s output is explicitly provisional/
+  pre-review; it must not be treated as the final published
+  `TechnicalHealth` anywhere downstream until Session 8 recomputes it from
+  reviewed-only findings.
+- `analyze`'s `--inventory-run-id` defaults to the inventory build
+  referenced by `readLatestInventoryRunId`, not necessarily the exact
+  inventory build a given crawl run actually crawled against — if the
+  inventory has been rebuilt between crawl and analyze, portal records
+  could theoretically drift. No cross-check exists yet linking a crawl
+  run's manifest to a specific inventory run id (the crawl manifest does
+  not currently record which inventory run it used); recorded here as a
+  reproducibility gap worth revisiting in a later session.
+
+### Next session prerequisites (Session 8 — Review and publication pipeline)
+
+- This session's `data/raw/analysis/<runId>/findings.jsonl` and
+  `evidence-artifacts.jsonl` are Session 8's primary input. Every
+  `Finding.reviewStatus` produced this session is one of
+  `"pending_review"`, `"automated_observation"`, or `"not_assessable"` —
+  never `"reviewed"`. Session 8 must add `ReviewDecision` records (§5.11)
+  separate from this generated data, and implement `review:validate` and
+  `publish` per the deferred §5.14 invariants already flagged as TODOs in
+  `packages/schema/src/finding.ts` (evidence `privacyReviewed` resolution,
+  overlap-comparison relationship checks, review-decision presence for
+  interpretive findings, and re-confirming `review_retirement` is never
+  reachable from technical failure alone even after review overrides).
+- Every materialized `EvidenceArtifact` this session produces has
+  `privacyReviewed: false` — Session 8's publication gate must flip this
+  only after actual human privacy review, and must refuse to publish any
+  finding whose evidence hasn't been reviewed (§8.3 item 3).
+- `provisional-technical-health.json` (this session's output) is NOT the
+  final `TechnicalHealth` — Session 8/11 must compute the real,
+  publishable value from _reviewed_ critical/significant findings only,
+  using `deriveProvisionalTechnicalHealth`'s shape as a starting point but
+  feeding it reviewed findings instead of raw candidates.
+- `SUGGESTION_TEMPLATES` in `packages/audit-core/src/suggestion.ts`
+  already includes the `possible_overlap` → `review_consolidation` and
+  "apparent obsolete + corroborating evidence" → `review_retirement` rows
+  for when Session 8's manual overlap/retirement workflows need them —
+  no rule in this session's registry calls them.
+- The rule registry (`packages/audit-core/src/rules/registry.ts`) is
+  designed to be easy to extend: a new rule just needs a `Rule` object
+  added to the relevant category array and a matching `config/checks.yaml`
+  entry; `selectEnabledRules`/`runPortalRules` require no changes.
