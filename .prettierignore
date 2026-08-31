@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+.next
+out
+coverage
+pnpm-lock.yaml
+data/raw
+data/evidence
+*.tsbuildinfo
+
+# Authoritative spec provided by the user — do not reformat its content.
+implementation.md

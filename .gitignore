@@ -1,0 +1,43 @@
+.firecrawl/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.vitest-cache/
+playwright-report/
+test-results/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Generated/raw data (see docs/architecture-decisions and section 4.3 of implementation.md)
+data/raw/*
+!data/raw/.gitkeep
+data/evidence/*
+!data/evidence/.gitkeep
+
+# Database
+*.pgdata/
