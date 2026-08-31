@@ -8,6 +8,16 @@ Authoritative, version-controlled configuration for the audit pipeline
 - `checks.yaml` — enabled checks and thresholds
 - `portals/` — per-portal crawl/render overrides
 
-**Status:** directory scaffold only. Populated in Session 2 ("Configuration
-and source registry"). No configuration files exist yet, so no network
-activity is possible.
+**Status:** populated in Session 2 ("Configuration and source registry").
+`sources.assam.yaml`'s entries are placeholder/illustrative content pending
+re-verification in Session 17 — see the warning comment at the top of that
+file. No network activity happens as part of validating this configuration.
+
+Validate everything in this directory with:
+
+```bash
+pnpm run audit sources:validate
+```
+
+See `docs/adding-sources.md` for how to add a new source without editing
+any code.

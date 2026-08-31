@@ -388,3 +388,227 @@ All matched files use Prettier code style!
   as the target shape it needs to populate.
 - No config files exist under `config/` yet beyond the Session 0
   placeholder `README.md` — Session 2 creates the real YAML.
+
+## Session 2 — Configuration and source registry
+
+### Files changed
+
+- `packages/audit-cli/src/config/common.ts` — shared config primitives
+  (`httpUrlString`, `supportedGeographySchema`) plus the design-decision
+  writeup for where config schemas live (see "Decisions" below).
+- `packages/audit-cli/src/config/source-registry.ts` — `sourceEntrySchema`,
+  `sourceRegistryConfigSchema`, `findDuplicateSourceIds`.
+- `packages/audit-cli/src/config/crawl-policy.ts` — `crawlPolicyConfigSchema`
+  (implementation.md §6.1–6.6).
+- `packages/audit-cli/src/config/checks.ts` — `checkEntrySchema`,
+  `checksConfigSchema`, `findDuplicateRuleIds` (§7).
+- `packages/audit-cli/src/config/portal-override.ts` —
+  `portalOverrideConfigSchema` for `config/portals/*.yaml`.
+- `packages/audit-cli/src/config/digest.ts` — `canonicalize`,
+  `canonicalJsonStringify`, `computeConfigDigest` (§9.4).
+- `packages/audit-cli/src/config/load.ts` — `loadYamlConfig`: reads +
+  parses YAML + validates against a Zod schema, returns `{ ok, issues }`
+  with file/path/reason detail; never throws.
+- `packages/audit-cli/src/config/validate.ts` — `validateAllConfig`,
+  `defaultConfigPaths`: full config validation pass across
+  `sources.assam.yaml`, `crawl-policy.yaml`, `checks.yaml`, and every
+  `config/portals/*.yaml`.
+- `packages/audit-cli/src/config/index.ts` — re-exports.
+- `packages/audit-cli/src/commands/sources-validate.ts` —
+  `runSourcesValidate`: the `sources:validate` command implementation
+  (pure function: config dir in, `{ exitCode, lines }` out).
+- `packages/audit-cli/src/cli.ts` — `runCli`: argv dispatcher, currently
+  handling only `sources:validate` (plus an optional `--config-dir` flag
+  used by tests/manual verification).
+- `packages/audit-cli/src/bin.ts` — process entry point (`console.info` +
+  `process.exit`), wired as the package's `bin`.
+- `packages/audit-cli/src/index.ts` — rewritten from the Session 0
+  placeholder into the library entry point, re-exporting the config module,
+  `runSourcesValidate`, and `runCli`.
+- `packages/audit-cli/package.json` — `bin` now points at `dist/bin.js`;
+  added `"start": "node dist/bin.js"`; added dependencies on
+  `@panchnama/schema` (workspace), `zod`, `yaml`.
+- Tests: `source-registry.test.ts`, `crawl-policy.test.ts`, `checks.test.ts`,
+  `portal-override.test.ts`, `digest.test.ts`, `validate.test.ts` (loads the
+  real `config/*.yaml` files plus fixture-based broken-config cases in a
+  temp dir), `commands/sources-validate.test.ts` (exit-code behavior against
+  real config and a broken fixture).
+- `package.json` (root) — added `"audit": "pnpm --filter @panchnama/audit-cli run start"`.
+- `config/sources.assam.yaml` (new) — 3 placeholder Assam source entries.
+- `config/crawl-policy.yaml` (new) — literal §6.1–6.6 defaults.
+- `config/checks.yaml` (new) — the 5 illustrative §7.1 rules, enabled.
+- `config/portals/README.md` (new, replaces `.gitkeep`) — override-file
+  format documentation.
+- `config/README.md` — updated with the real validate command and pointer
+  to `docs/adding-sources.md`.
+- `docs/adding-sources.md` (new) — non-engineer guide to adding a source.
+
+### Decisions
+
+**Where config schemas live.** Put in `packages/audit-cli/src/config/`,
+not `packages/schema`. Reasoning: `packages/schema`'s own documented scope
+is "shared Zod schemas ... for every domain record defined in
+implementation.md section 5" — the stored/published entity model. Crawl
+policy, check thresholds, and the source registry are operational
+configuration for the CLI pipeline (§6, §7, §9), a different kind of thing
+from a domain record, and nothing outside `audit-cli` currently needs to
+read it (the web app consumes published data, not raw pipeline config).
+Config schemas do import and reuse `packages/schema`'s primitives
+(`stableId`, `nonEmptyString`, `schemaVersionField`) rather than
+redefining them, so there is one source of truth for those primitives even
+though the composite config schemas live elsewhere. If a later session
+needs these shapes from another package, promote them to
+`packages/schema/src/config/` then, rather than pre-emptively duplicating
+now. Full reasoning is also inlined as a comment in `config/common.ts`.
+
+**`pnpm audit <command>` wiring, and a real conflict found.**
+implementation.md §9.1 specifies `pnpm audit sources:validate` verbatim.
+`pnpm` itself reserves `audit` as a built-in subcommand (its own
+supply-chain security audit, unrelated to this project) that intercepts
+`pnpm audit ...` **before** pnpm checks `package.json` scripts — so the
+literal command from the spec does not resolve to our script and instead
+fails with `ERR_PNPM_AUDIT_UNKNOWN_SUBCOMMAND`. This is a genuine
+repository/tooling constraint, not a workaround-able implementation
+choice. Smallest safe adjustment: keep the script named `audit` in root
+`package.json` (closest match to spec intent) and document that it must be
+invoked as `pnpm run audit sources:validate` (explicit `run` bypasses
+pnpm's built-in interception). All config file header comments,
+`config/README.md`, and `docs/adding-sources.md` use this corrected
+command. Wiring: root `"audit": "pnpm --filter @panchnama/audit-cli run
+start"` → package script `"start": "node dist/bin.js"` → `src/bin.ts` →
+`src/cli.ts`'s `runCli` → `sources:validate` → `runSourcesValidate`.
+
+**Digest algorithm.** One `computeConfigDigest(value)` in
+`config/digest.ts`, reused for all three of `AuditRun`'s
+`sourceRegistryDigest` / `crawlPolicyDigest` / `checkConfigDigest` fields
+(defined in `@panchnama/schema`, not populated by this session — no
+`AuditRun` is created until the crawler exists). Algorithm: recursively
+sort object keys (`canonicalize`), `JSON.stringify` the result
+(`canonicalJsonStringify`), then SHA-256 hex-digest via `node:crypto`.
+Deliberately does NOT reorder array elements — element order in a YAML
+list (source priority, check ordering) is meaningful and a digest that
+ignored it would hide a real content change. Verified deterministic
+against key-order permutations (including nested objects) and sensitive to
+actual content/array-order changes; see `digest.test.ts`.
+
+**Source-registry config vs. `InventorySource`.** Config
+(`sourceRegistryConfigSchema`) omits `retrievedAt` and `evidencePath`
+(populated at ingestion, Session 3) and adds `enabled` (lets a non-engineer
+disable a source without deleting its history). Documented inline in
+`source-registry.ts` and in `docs/adding-sources.md`.
+
+**YAML library.** `yaml` (not `js-yaml`): actively maintained, native
+TypeScript types, no separate `@types/js-yaml` dependency needed.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/audit-cli run test
+ ✓ src/config/digest.test.ts (6 tests)
+ ✓ src/config/portal-override.test.ts (5 tests)
+ ✓ src/config/checks.test.ts (7 tests)
+ ✓ src/config/crawl-policy.test.ts (8 tests)
+ ✓ src/config/source-registry.test.ts (12 tests)
+ ✓ src/commands/sources-validate.test.ts (3 tests)
+ ✓ src/config/validate.test.ts (7 tests)   # loads the real config/*.yaml files
+ ✓ src/index.test.ts (1 test)
+ Test Files  8 passed (8) / Tests  49 passed (49)
+
+$ pnpm lint        # eslint . — exit 0, no output
+$ pnpm typecheck   # 6 workspace projects, tsc --noEmit — exit 0
+$ pnpm test        # 8 workspace test suites, 117 tests total — all passed
+$ pnpm build       # apps/web (next build, 4/4 static pages) + 5 packages (tsc) — exit 0
+$ pnpm format:check  # prettier --check . — "All matched files use Prettier code style!"
+```
+
+Manual `sources:validate` verification:
+
+```
+$ pnpm run audit sources:validate
+> pnpm --filter @panchnama/audit-cli run start sources:validate
+> node dist/bin.js sources:validate
+sources:validate PASSED
+  sources: 3
+  portal overrides: 0
+  sourceRegistryDigest: 952d78cd49abd51a4ed4d8c91f8b0502acd33ff81b5cbe45a25e344c18fa2597
+  crawlPolicyDigest: a6b583170998f48b69985e11518486a51686290233cfbb023b595e882d605036
+  checkConfigDigest: 396729e2496e7a21bc3b1700f6e79ce6d0048c58aa3763c0dc5bc3f45efe74b5
+(exit code 0)
+
+$ node dist/bin.js sources:validate --config-dir <broken-temp-dir>
+# temp dir: geography "kerala" (invalid), duplicate source id "dup",
+# an invalid/non-http(s) URL, and missing crawl-policy.yaml/checks.yaml
+sources:validate FAILED — 5 issue(s):
+  - <tmp>/sources.assam.yaml [geography]: Invalid literal value, expected "assam"
+  - <tmp>/sources.assam.yaml [sources.0.url]: Invalid url
+  - <tmp>/sources.assam.yaml [sources.0.url]: url must use the http or https scheme
+  - <tmp>/crawl-policy.yaml [(file)]: file does not exist
+  - <tmp>/checks.yaml [(file)]: file does not exist
+(exit code 1)
+```
+
+No network activity occurred at any point in this session.
+
+### Known limitations (deferred checks, explicit)
+
+- **Portal-override cross-check deferred.** `config/portals/*.yaml`
+  `portalId` is validated for shape only (a `stableId`-shaped string); it
+  is never checked against a real `Portal` record because no `Portal`
+  records exist until Session 3. No override files exist yet either
+  (`config/portals/` currently holds only `README.md`).
+- **Source registry is placeholder content.** All 3 entries in
+  `config/sources.assam.yaml` are illustrative/well-known Assam government
+  entry points, explicitly marked as unverified in the file's header
+  comment. Session 17 must independently re-verify every URL, name, and
+  authority attribution before this registry drives a live crawl. No
+  network fetch or verification happened in this session.
+- **`checks.yaml` rule catalog is not closed.** `ruleId` is validated as a
+  `stableId`-shaped string, not an enum of every rule Session 7 will
+  eventually implement; a typo'd rule ID that happens to be URL-safe will
+  pass this session's validation and only surface as unrecognized when
+  Session 7's rule engine tries to resolve it.
+- **`parameters`/`overrides` are structurally, not semantically, typed.**
+  `checks.yaml`'s per-rule `parameters` is a generic `Record<string,
+  unknown>`; this session does not know each rule's exact parameter shape
+  (e.g. that `availability.unavailable.v1` needs `spacedAttempts: number`)
+  because rule implementations don't exist until Session 7. Session 7
+  should add rule-specific parameter validation at that point.
+- **Digest is exposed but not wired into any `AuditRun`.** No crawl/analyze
+  pipeline exists yet (Session 4+) to actually construct an `AuditRun` and
+  populate its `sourceRegistryDigest`/`crawlPolicyDigest`/
+  `checkConfigDigest` fields with `computeConfigDigest`'s output — this
+  session only proves the function itself is correct and deterministic.
+- **`pnpm audit sources:validate` (as literally written in
+  implementation.md §9.1) does not work** due to pnpm's built-in `audit`
+  subcommand intercepting it first; use `pnpm run audit sources:validate`
+  instead. See "Decisions" above. Flagged for whoever reviews this against
+  the spec literally — this is a real tooling constraint, not an oversight.
+- **No cross-check that `config/sources.assam.yaml` entries are reachable
+  or genuinely official** — that requires network access and is explicitly
+  out of scope for this session (and for Session 3's shape, arguably
+  belongs to the ingestion/verification work of Session 17).
+
+### Next session prerequisites (Session 3 — Inventory ingestion and normalization)
+
+- `config/sources.assam.yaml` now has real (placeholder) source entries
+  that validate; Session 3's `inventory:build` should read this file (via
+  `packages/audit-cli/src/config/source-registry.ts`'s
+  `sourceRegistryConfigSchema` and `loadYamlConfig`) and, for each enabled
+  source, produce actual `InventorySource` records (`@panchnama/schema`)
+  by stamping `retrievedAt` and `evidencePath` — the two fields this
+  session's config schema deliberately omits.
+- `config/crawl-policy.yaml` and `config/checks.yaml` exist and validate;
+  Session 4's crawler and Session 7's rule engine should read them via
+  `packages/audit-cli/src/config/crawl-policy.ts` /
+  `packages/audit-cli/src/config/checks.ts` rather than hard-coding
+  defaults.
+- `computeConfigDigest` (`packages/audit-cli/src/config/digest.ts`) is
+  ready to be called on the parsed config objects once a real `AuditRun`
+  is constructed (Session 4+), to populate `sourceRegistryDigest` /
+  `crawlPolicyDigest` / `checkConfigDigest`.
+- `pnpm run audit sources:validate` (note: `run` is required, see
+  "Decisions") is the validation entry point Session 3's `inventory:build`
+  should likely call/reuse before ingesting, per §9.2's "invalid
+  configuration prevents network activity."
+- `config/portals/` remains empty of actual override files until Session 3
+  creates `Portal` records with real IDs to override.

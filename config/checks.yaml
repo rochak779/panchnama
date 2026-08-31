@@ -1,0 +1,41 @@
+# config/checks.yaml
+#
+# Enabled audit checks and their tunable parameters — implementation.md
+# section 7. Rule *logic* is implemented in Session 7; this file only
+# declares which rule IDs are enabled and their thresholds. Enables the
+# illustrative rules from section 7.1's table with placeholder-but-sane
+# thresholds; Session 7 may add further rules here as it implements them.
+#
+# Validate this file with: pnpm run audit sources:validate
+
+schemaVersion: "1.0.0"
+
+checks:
+  - ruleId: availability.unavailable.v1
+    enabled: true
+    parameters:
+      # "Entry URL fails across 3 spaced attempts" (section 7.1), matching
+      # section 6.1's "Maximum 3 attempts for availability-critical
+      # requests".
+      spacedAttempts: 3
+      minSpacingMinutes: 15
+
+  - ruleId: availability.server-error.v1
+    enabled: true
+    parameters:
+      # "Repeated 5xx response" (section 7.1).
+      minRepeatedOccurrences: 2
+
+  - ruleId: availability.not-found.v1
+    enabled: true
+    parameters:
+      # "Official entry URL repeatedly returns 404/410" (section 7.1).
+      minRepeatedOccurrences: 2
+
+  - ruleId: redirect.cross-domain.v1
+    enabled: true
+    parameters: {}
+
+  - ruleId: availability.automation-blocked.v1
+    enabled: true
+    parameters: {}

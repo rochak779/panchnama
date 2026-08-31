@@ -1,0 +1,81 @@
+# config/crawl-policy.yaml
+#
+# Crawl boundaries, exclusions, identification, JS-rendering policy, URL
+# normalization, and safe-operation switches — implementation.md section 6
+# in full. These values belong in configuration, not hard-coded constants
+# (section 6.1), so the crawler (Session 4+) must read this file rather
+# than embedding defaults.
+#
+# Validate this file with: pnpm run audit sources:validate
+
+schemaVersion: "1.0.0"
+
+# 6.1 Default boundaries — literal pilot defaults from implementation.md.
+boundaries:
+  maxPagesPerPortal: 40
+  maxDepth: 2
+  maxConcurrentRequestsPerHost: 2
+  minDelayMsPerHost: 750
+  requestTimeoutMs: 15000
+  maxAttemptsAvailabilityCritical: 3
+  maxResponseBodyBytes: 5242880 # 5 MB
+  maxRedirects: 10
+  allowedSchemes:
+    - http
+    - https
+
+# 6.2 Exclusions.
+exclusions:
+  routeCategories:
+    - login
+    - logout
+    - authentication
+    - account
+    - payment
+    - transaction_submission
+    - state_mutating_form
+    - calendar
+    - site_search_results
+    - infinite_query_combination
+  denylistPathPatterns: []
+  excludedUrlSchemes:
+    - mailto
+    - tel
+    - javascript
+    - data
+
+# 6.3 Robots and identification.
+robotsAndIdentification:
+  userAgent: "PanchnamaAuditBot/0.1 (+https://panchnama.example.org/about; contact: audit@panchnama.example.org)"
+  contactUrl: "https://panchnama.example.org/about"
+  respectRobotsTxt: true
+
+# 6.4 JavaScript rendering — HTTP parsing is the default; browser fallback
+# is an allowlisted exception only (per-portal, via config/portals/*.yaml).
+jsRendering:
+  browserFallbackEnabled: false
+  perPortalAllowlist: []
+  maxBrowserPagesPerPortal: 10
+  maxBrowserResourceBytes: 10485760 # 10 MB
+
+# 6.5 URL normalization.
+urlNormalization:
+  trailingSlashPolicy: strip
+  removeFragments: true
+  trackingParameterDenylist:
+    - utm_source
+    - utm_medium
+    - utm_campaign
+    - utm_term
+    - utm_content
+    - gclid
+    - fbclid
+  sortRetainedQueryParameters: true
+
+# 6.6 Safe operation.
+safeOperation:
+  globalKillSwitch: false
+  disabledDomains: []
+  allowedHttpMethods:
+    - GET
+    - HEAD

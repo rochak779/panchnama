@@ -1,0 +1,61 @@
+# config/sources.assam.yaml
+#
+# Authoritative registry of sources used to build the Assam government
+# website inventory (implementation.md sections 4.3, 5.2, 14 Session 2).
+#
+# Validate this file with: pnpm run audit sources:validate
+#
+# IMPORTANT — placeholder content:
+# The entries below are well-known, easily-verifiable official Assam
+# government entry points, included as illustrative/placeholder seed
+# content for this session only. NO network verification has been
+# performed on them as part of this session (Session 2 performs no network
+# activity at all). Session 17 ("Assam inventory research and verification"
+# per implementation.md) must independently re-verify every URL, name, and
+# authority attribution here before this registry is used for a live
+# crawl (`inventory:build`). Do not treat this file as a verified source
+# of truth until that session has run.
+#
+# Config vs. record: this file declares *intent to use a source* (where to
+# look). It intentionally omits `retrievedAt` and `evidencePath`, which
+# belong to the `InventorySource` record (@panchnama/schema,
+# implementation.md section 5.2) and are populated when Session 3's
+# `inventory:build` actually fetches/ingests a source and stamps retrieval
+# metadata. See docs/adding-sources.md for the full field reference.
+
+schemaVersion: "1.0.0"
+geography: assam
+
+sources:
+  - id: assam-gov-portal
+    name: "Government of Assam — State Portal"
+    authorityName: "Government of Assam"
+    url: "https://assam.gov.in"
+    sourceType: official_page
+    enabled: true
+    notes: >-
+      PLACEHOLDER — needs re-verification in Session 17. The state
+      government's main portal; expected to link out to individual
+      department and scheme websites.
+
+  - id: assam-online-services
+    name: "Assam Online — State Citizen Services Portal"
+    authorityName: "Government of Assam"
+    url: "https://online.assam.gov.in"
+    sourceType: official_directory
+    enabled: true
+    notes: >-
+      PLACEHOLDER — needs re-verification in Session 17. Cited as a
+      directory of citizen-facing e-services; used as a candidate source
+      of portal listings for the inventory, not a single portal itself.
+
+  - id: assam-district-portal-directory
+    name: "Assam District Administration Portals"
+    authorityName: "Government of Assam"
+    url: "https://assam.gov.in/districts"
+    sourceType: official_directory
+    enabled: true
+    notes: >-
+      PLACEHOLDER — needs re-verification in Session 17. Believed to list
+      individual district administration websites; exact path is
+      unverified and may need correction before first ingestion.
