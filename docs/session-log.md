@@ -971,3 +971,382 @@ or `packages/audit-core/src/`).
   (loaded, typed, and validated since Session 2) are all still
   unconsumed by any actual fetcher — Session 4 is where they get used for
   real.
+
+---
+
+## Session 4 — Safe fetcher and crawl frontier
+
+**Date:** 2026-08-31
+**Goal:** Build the bounded, polite HTTP acquisition layer (implementation.md
+section 14, "Session 4").
+
+### Files changed
+
+- `packages/audit-core/src/crawl-errors.ts` (+ test) — pure classification
+  of Node/fetch errors and HTTP statuses into the section 9.3 stable error
+  taxonomy.
+- `packages/audit-core/src/ip-range.ts` (+ test) — pure IPv4/IPv6
+  loopback/link-local/private/metadata-range check for SSRF (section 12.1).
+- `packages/audit-core/src/crawl-scope.ts` (+ test) — pure hostname-scope,
+  disabled-domain, denylist-pattern, and route-category decisions (sections
+  6.1/6.2).
+- `packages/audit-core/src/robots-txt.ts` (+ test) — minimal hand-rolled
+  robots.txt parser/matcher (section 6.3).
+- `packages/audit-core/src/link-scan.ts` (+ test) — minimal regex `<a href>`
+  extractor (the Session 4/5 boundary; see below).
+- `packages/audit-core/src/index.ts` — re-exports the above.
+- `packages/audit-cli/src/crawl/ssrf.ts` (+ test) — DNS-resolve-then-check
+  SSRF guard, with a documented test-only bypass.
+- `packages/audit-cli/src/crawl/http-fetcher.ts` (+ test) — the bounded
+  fetcher: timeout (two-phase connect/read), response-size streaming limit,
+  manual redirect-chain capture, retry/backoff, GET/HEAD-only, no cookie
+  jar.
+- `packages/audit-cli/src/crawl/host-scheduler.ts` (+ test) — per-host
+  concurrency + minimum-delay queue.
+- `packages/audit-cli/src/crawl/robots-fetcher.ts` — per-host robots.txt
+  fetch + cache, using the audit-core parser.
+- `packages/audit-cli/src/crawl/frontier.ts` (+ test) — BFS crawl frontier:
+  scope/exclusion/robots/kill-switch enforcement, page-observation
+  generation, minimal link discovery, depth/page-budget boundaries.
+- `packages/audit-cli/src/crawl/manifest.ts` — `AuditRun` manifest builder
+  (config digests, git revision, node version, enabled checks).
+- `packages/audit-cli/src/crawl/id.ts` — `assam-<date>-r<n>` run-id
+  derivation.
+- `packages/audit-cli/src/crawl/write.ts` — atomic write for
+  `data/raw/crawl/<runId>/` (mirrors Session 3's inventory-write
+  convention).
+- `packages/audit-cli/src/crawl/run.ts` — full run orchestration: config
+  loading, kill-switch check, inventory loading, per-portal isolation,
+  manifest assembly, atomic write.
+- `packages/audit-cli/src/crawl/testing/fixture-server.ts` — local
+  `node:http` fixture server helper shared by every crawler test.
+- `packages/audit-cli/src/commands/crawl.ts` (+ test) — CLI command
+  wrapper.
+- `packages/audit-cli/src/cli.ts` — adds the `crawl` case to the dispatcher
+  switch; `runCli` is now `async` (required once a command performs
+  network I/O).
+- `packages/audit-cli/src/bin.ts` — `await`s the now-async `runCli`.
+
+### Decisions
+
+**audit-core / audit-cli split.** Followed Session 3's precedent exactly:
+everything that is a pure function over already-known inputs (error
+classification, IP-range checks, scope decisions, robots.txt parsing,
+`<a href>` extraction) lives in `audit-core` with no I/O and no
+dependencies. Everything that performs a network call, spawns a timer,
+touches the filesystem, or reads process/config state (the fetcher, the
+SSRF DNS lookup, the host scheduler, the robots.txt _fetch_, the frontier
+orchestration, the CLI command) lives in `audit-cli`. This split is what
+let every `audit-core` addition be tested with zero network/timers and
+every `audit-cli` addition be tested against real local fixture servers.
+
+**Session 4/5 link-discovery boundary.** `audit-core/src/link-scan.ts`
+(`extractRawHrefs`) is a regex-based `<a href="...">` scanner — it does
+_not_ parse title, canonical URL, language, anchor text, or link context.
+It exists solely so the frontier has candidate URLs to normalize and
+enqueue while walking depth 0..maxDepth. Session 5 ("HTML extraction and
+link checking") replaces the _use_ of this function inside the frontier
+with real Cheerio-based extraction and adds the fields this session leaves
+empty (`title`, `canonical`, `language` on `PageObservation`) plus
+destination `LinkObservation` link-checking, which this session does not
+build at all — the frontier only records which pages _it_ visited, not
+whether the links on those pages resolve.
+
+**Redirect-chain capture.** The fetcher uses `fetch(..., { redirect:
+"manual" })` and follows each hop itself, rather than letting `fetch`
+auto-follow, for two reasons: (1) `PageObservation.redirectChain` needs
+every intermediate URL and status, which an auto-following `fetch` never
+exposes; (2) each hop is independently re-checked for scheme and SSRF
+before being followed, since a redirect can point anywhere (including a
+private IP) and the original URL's SSRF check says nothing about where a
+redirect leads.
+
+**Two-phase timeout.** `requestTimeoutMs` is spent twice: once waiting for
+response headers (an abort here → `CONNECT_TIMEOUT`) and again, restarted,
+while streaming the body (an abort here → `READ_TIMEOUT`). Both phases
+share one `AbortController`, so a body-read timeout actually tears down the
+in-flight socket read rather than merely abandoning a dangling promise.
+
+**Response-size limit.** Enforced by streaming: `readBodyBounded` reads
+chunks via the body's `ReadableStreamDefaultReader`, counts bytes as they
+arrive, and calls `controller.abort()` the moment the running total
+exceeds `maxResponseBodyBytes` — the response is never buffered in full
+before the check runs. The fetcher always decodes the (bounded) body as
+UTF-8 text regardless of content type (an earlier draft only decoded
+`text/html`, which broke robots.txt's `text/plain` body — fixed and
+covered by `robots-txt` fixture tests); content-type-based "is this a
+crawlable HTML page" filtering happens one layer up, in the frontier.
+
+**Retry/backoff.** `fetchWithRetry` retries only
+`DNS_FAILURE`/`CONNECT_TIMEOUT`/`READ_TIMEOUT`/`HTTP_SERVER_ERROR` (never
+4xx, TLS errors, `TOO_MANY_REDIRECTS`, or SSRF/scope rejections — retrying
+those wastes requests without a plausible chance of success), up to
+`crawlPolicy.boundaries.maxAttemptsAvailabilityCritical`, with exponential
+backoff + jitter. Applied uniformly to every page fetch in this session
+(not restricted to just each portal's entry URL) — a deliberate
+simplification over the spec's narrower "availability-critical requests"
+phrasing, documented here rather than building a second, unretried fetch
+path this session doesn't need.
+
+**Error-code mapping fidelity vs. section 9.3's 15 codes** (see also "Risks
+below):
+
+- Fully implemented and exercised by local-server tests: `DNS_FAILURE`,
+  `CONNECT_TIMEOUT` (incl. `ECONNREFUSED`, `ECONNRESET`, unreachable-host
+  codes — the taxonomy has no separate "connection refused" code, so this
+  is a documented convention), `READ_TIMEOUT`, `TOO_MANY_REDIRECTS`,
+  `HTTP_CLIENT_ERROR`, `HTTP_SERVER_ERROR`, `AUTH_REQUIRED` (401),
+  `ROBOTS_DISALLOWED`, `RESPONSE_TOO_LARGE`.
+- Classification logic is faithful to Node's real TLS error codes
+  (`CERT_HAS_EXPIRED` → `TLS_CERT_EXPIRED`,
+  `ERR_TLS_CERT_ALTNAME_INVALID`/`HOSTNAME_MISMATCH` →
+  `TLS_HOST_MISMATCH`) but **not exercised against a real local
+  self-signed/expired-cert HTTPS fixture** this session — standing up a
+  cert with a genuinely expired `notAfter` and getting Node to actually
+  reach the TLS-verification failure path (vs. `ERR_TLS_CERT_ALTNAME_INVALID`
+  short-circuiting first) reliably in CI was judged not worth the added
+  fixture complexity for this session; unit-tested only via constructed
+  error objects (`crawl-errors.test.ts`).
+- **Not implemented, structurally deferred:** `AUTOMATION_BLOCKED` and
+  `PARSER_FAILURE` require content-level analysis (bot-block/CAPTCHA page
+  detection, HTML parsing failures) that doesn't exist until Session 6/7 —
+  no code path in this session can produce them, by design. `UNSUPPORTED_CONTENT`
+  exists in the taxonomy constant but nothing in the frontier emits it yet
+  (non-HTML responses are recorded normally, just not crawled into — not
+  treated as an error at this layer, per the task brief's "don't invent
+  detection you can't perform").
+- `SCOPE_EXCLUDED` and `SSRF_BLOCKED` are two codes _added_ to the taxonomy
+  constant beyond section 9.3's literal list, for the fetcher's own
+  defense-in-depth scheme/SSRF checks (the frontier's scope check happens
+  first and normally prevents these from firing in practice, but the
+  fetcher re-checks independently rather than trusting a caller).
+
+**SSRF test-bypass mechanism.** `checkSsrf(hostname, { allowLoopbackForTests
+})` — an explicit, named, documented-as-test-only option threaded from
+`HttpFetcherOptions.ssrf` down through the frontier and `runCrawl`. The
+production `crawl` CLI command (`packages/audit-cli/src/commands/crawl.ts`
+→ `cli.ts`'s `crawl` case) never sets it — grep for
+`allowLoopbackForTests` confirms every call site is either test code or the
+option's own pass-through plumbing. Demonstrated live (see below): the real
+CLI, pointed at a loopback fixture with no override, correctly produces an
+`SSRF_BLOCKED` `PageObservation` rather than connecting.
+
+**Output location and layout.** `data/raw/crawl/<runId>/`, containing
+`manifest.json` (the `AuditRun`), `page-observations.jsonl` (JSONL, not a
+single JSON array, so a very large run can be streamed/appended without an
+in-memory array and a truncated file is self-evidently partial), and
+`skip-log.json` (every scope-excluded / robots-disallowed / budget-cut URL
+with its reason, for coverage reporting). `data/raw/crawl/latest` holds the
+current `runId` as plain text, mirroring Session 3's inventory convention
+exactly. Never overwrites an existing `<runId>/` directory (refuses with a
+clear message instead), matching Session 3's precedent.
+
+**Resumability — narrower than "fully resumable."** This session's `crawl`
+command performs one atomic write at the very end of a run (stage in a
+temp dir, validate every record against its schema, `rename` into place);
+it does **not** persist intermediate state while a run is in progress, so
+an interrupted run cannot be resumed mid-flight — it must be re-run under
+a new `--run-id`. This is a deliberate, documented narrowing of section
+9.2's "resumable and idempotent where practical": true mid-run resumability
+would need a durable frontier/visited-set on disk, which felt like
+overbuilding for a session whose exit criteria are about boundaries and
+isolation, not resumability depth. Idempotency is achieved via
+never-overwrite + deterministic auto-incrementing run ids
+(`assam-<date>-r<n>`), not via resuming.
+
+**Kill switch / disabled domains.** `crawlPolicy.safeOperation.globalKillSwitch`
+is checked once, first, before any config-dependent work (including
+`--dry-run` planning) — the whole command refuses. `disabledDomains` is
+enforced per-URL inside `decideScope` (audit-core), so it applies uniformly
+to a portal's entry URL and every discovered URL; a portal whose entry
+hostname is disabled ends up with zero fetched pages and `status: "failed"`
+(via the "entry never succeeded" derivation), with the skip reason recorded
+in `skip-log.json`.
+
+**Portal status derivation.** `succeeded` = the first-processed seed URL
+was fetched successfully and no page in the crawl had an `errorCode`;
+`partial` = the entry succeeded but at least one other page errored (robots
+-disallowed pages do _not_ count as errors — reduced coverage, not
+failure, per section 6.3); `failed` = the entry itself never succeeded
+(fetch error, or scope/kill-switch exclusion). The run-level `AuditRun.status`
+is then derived from portal counts per the schema's existing invariant
+(`completed` iff all succeeded, `failed` iff none did, `partial` otherwise).
+
+### Tests run and results
+
+```
+$ pnpm lint         # eslint . — exit 0, no output
+$ pnpm typecheck    # 6 workspace projects — exit 0
+$ pnpm test         # all workspaces — 261 tests total — all passed
+$ pnpm build        # apps/web (next build) + 5 packages (tsc) — exit 0
+$ pnpm format       # prettier — reformatted new files to project style
+```
+
+New test files and counts:
+
+- `packages/audit-core`: `crawl-errors.test.ts` (11), `ip-range.test.ts` (8),
+  `crawl-scope.test.ts` (8), `robots-txt.test.ts` (7), `link-scan.test.ts`
+  (6) — 40 new tests, all against constructed inputs, no I/O.
+- `packages/audit-cli`: `crawl/http-fetcher.test.ts` (15 — status codes,
+  single/multi-hop redirects, redirect-loop termination at `maxRedirects`,
+  connect timeout, read timeout, oversized-body streaming abort, connection
+  refused, GET/HEAD-only, retry recovery/non-retry/exhaustion),
+  `crawl/ssrf.test.ts` (7), `crawl/host-scheduler.test.ts` (3),
+  `crawl/frontier.test.ts` (6 — depth boundary, page-budget boundary,
+  robots homepage-allowed/deeper-disallowed, out-of-scope hostname, dry-run
+  zero-requests, entry-failure isolation), `commands/crawl.test.ts` (6 —
+  multi-portal run with one unreachable portal isolated, kill-switch
+  refusal, disabled-domain skip, dry-run zero-requests-and-zero-disk-writes,
+  never-overwrite, config-digest consistency with `computeConfigDigest`).
+  All against local `node:http` fixture servers (via the shared
+  `crawl/testing/fixture-server.ts` helper) — zero live-network calls
+  anywhere in the suite.
+
+### Manual verification (real CLI, real inventory, no live-internet targets)
+
+Real inventory build, then real CLI `--dry-run` against the real
+(fixture-derived) Assam inventory — genuinely zero network calls, verified
+by the absence of any output directory:
+
+```
+$ pnpm run audit inventory:build --state assam
+inventory:build PASSED
+  runId: assam-20260831T175228Z
+  portals: 7
+  ...
+
+$ pnpm run audit crawl --state assam --dry-run --out-dir /tmp/panchnama-demo/crawl
+crawl run: assam-2026-08-31-r1
+inventory: assam-20260831T175228Z
+portals: 7
+mode: --dry-run (no network requests will be made)
+  [succeeded] agriculture.assam.gov.example — 1 page(s) (planned: 1)
+  [succeeded] health.assam.gov.example — 1 page(s) (planned: 1)
+  [succeeded] online.assam.gov.example — 1 page(s) (planned: 1)
+  [succeeded] assam.gov.in-schemes-pension — 1 page(s) (planned: 1)
+  [succeeded] transport.assam.gov.example — 2 page(s) (planned: 2)
+  [succeeded] kamrup.assam.gov.example — 1 page(s) (planned: 1)
+  [succeeded] dibrugarh.assam.gov.example — 1 page(s) (planned: 1)
+# (no /tmp/panchnama-demo/crawl directory was created)
+```
+
+Kill-switch refusal (copied config with `globalKillSwitch: true`):
+
+```
+$ pnpm run audit crawl --state assam --config-dir <copy-with-kill-switch-on>
+crawl FAILED
+crawl REFUSED — crawlPolicy.safeOperation.globalKillSwitch is true.
+  No requests were made. Set globalKillSwitch: false in config/crawl-policy.yaml to re-enable crawling.
+(exit code 1; no output directory created)
+```
+
+SSRF guard firing on the real, unmodified CLI path (a local fixture server
+on `127.0.0.1`, no test-only override — this is the _expected and correct_
+outcome, proving the production path cannot be pointed at loopback):
+
+```
+$ pnpm run audit crawl --portal demo-fixture-portal --inventory-out-dir <fixture-inventory> --out-dir <out>
+crawl run: demo-real-r1
+  [failed] demo-fixture-portal — 1 page(s)
+status: failed
+# page-observations.jsonl:
+{"errorCode":"SSRF_BLOCKED","errorMessage":"hostname \"127.0.0.1\" resolves to blocked address 127.0.0.1 (loopback/link-local/private/metadata range)", ...}
+```
+
+A successful scoped crawl against the same local fixture, run through a
+small ad hoc script that calls `runCrawl()` directly with the documented
+test-only `ssrf.allowLoopbackForTests` override (never the real CLI path —
+this is exactly how the automated test suite exercises the fetcher, just
+demonstrated interactively):
+
+```
+crawl run: demo-harness-r1
+inventory: demo-fixture-run
+portals: 1
+  [succeeded] demo-fixture-portal — 2 page(s)
+status: completed
+portals succeeded/partial/failed: 1/0/0
+page observations: 2
+output: /tmp/panchnama-demo/crawl-harness/demo-harness-r1
+```
+
+Resulting `manifest.json` validated against `auditRunSchema` inline by the
+command itself before writing; both `page-observations.jsonl` records
+validated against `pageObservationSchema` (homepage `httpStatus: 200`, and
+the discovered `/about` link fetched at depth 1 with `discoveredFrom` set
+to the homepage URL — demonstrating the minimal link-discovery frontier
+end to end).
+
+### Known limitations (deferred/best-effort, explicit)
+
+- **TLS error codes (`TLS_CERT_EXPIRED`, `TLS_HOST_MISMATCH`) are
+  classification-correct but not exercised against a real expired/mismatched
+  local HTTPS fixture** — see "Error-code mapping fidelity" above. Best-effort:
+  unit-tested via constructed error objects matching Node's actual error
+  shapes, not via a live handshake failure.
+- **`AUTOMATION_BLOCKED` and `PARSER_FAILURE` are not implemented at all**
+  this session — both require content-level analysis that doesn't exist
+  until Session 6 (browser fallback / block detection) and Session 7
+  (rules that interpret parsing outcomes). No code path emits them.
+- **`UNSUPPORTED_CONTENT` is declared but unused.** Non-HTML responses are
+  recorded as ordinary successful `PageObservation`s (with their real
+  `contentType`) and simply excluded from link discovery — not flagged as
+  an error, since nothing about "this is a PDF" is itself a failure.
+- **Retry policy is applied uniformly to every page fetch**, not narrowed
+  to just each portal's designated "entry URL" as section 7.1's literal
+  phrasing might suggest — see "Retry/backoff" decision above.
+- **No true mid-run resumability** — see "Resumability" decision above.
+  An interrupted run is not resumed; a fresh run (new `--run-id`) is
+  required.
+- **`packageVersionsDigest` approximates "digest of the resolved lockfile"**
+  (section 5.4) with `{ node: process.version, audit_cli_version: "0.0.0" }`
+  rather than actually parsing `pnpm-lock.yaml` — the workspace has no
+  lockfile-hashing utility yet, and pinning exact dependency versions
+  wasn't judged worth a new dependency-parsing step this session. Flagged
+  in `manifest.ts` with a comment pointing at this limitation.
+- **`methodologyVersion` is a fixed placeholder (`"0.1.0"`)** — no real,
+  versioned methodology document exists yet (implementation.md section
+  10.7 is a later session).
+- **Route-category exclusion matching (`ROUTE_CATEGORY_PATTERNS` in
+  `crawl-scope.ts`) is a best-effort heuristic** (path-substring regexes
+  for login/logout/payment/calendar/site-search/etc.), not a guarantee —
+  documented in-file as approximating section 6.2's route categories from
+  URL shape alone, since the more reliable signal (page content, form
+  presence) doesn't exist until later sessions. "Forms that mutate server
+  state" specifically is not detectable at this layer at all and is instead
+  structurally prevented by the fetcher only ever issuing GET/HEAD.
+- **No evidence-artifact capture this session.** Every `PageObservation.artifactRefs`
+  is `[]`; no `EvidenceArtifact` records are produced. `bodyDigest` (a
+  SHA-256 of the fetched body) is populated for free as a lightweight
+  integrity signal, but no snapshot is persisted to `data/evidence/` —
+  that's implicitly Session 7/8 territory (materializing typed evidence
+  records), out of scope for "build the fetcher."
+
+### Next session prerequisites (Session 5 — HTML extraction and link checking)
+
+- `packages/audit-cli/src/crawl/frontier.ts`'s use of `extractRawHrefs`
+  (from `@panchnama/audit-core`) is exactly what Session 5 replaces with
+  full Cheerio-based extraction (title, canonical, language, anchor text,
+  link context) — the minimal scanner stays in `audit-core` as a
+  documented, superseded-in-practice building block; nothing needs to be
+  deleted, just no longer called from the frontier once Session 5 lands.
+- `PageObservation.title` / `.canonical` / `.language` are always absent
+  from every record this session produces — Session 5 is where they get
+  populated.
+- No `LinkObservation` records exist yet at all — Session 5 introduces
+  destination link-checking (GET/HEAD-with-fallback on discovered
+  destinations, deduplicated by normalized URL, grouped failures) as a new
+  pipeline stage consuming this session's `PageObservation`s.
+- `packages/audit-cli/src/crawl/http-fetcher.ts`'s `fetchOnce`/`fetchWithRetry`
+  and `packages/audit-cli/src/crawl/host-scheduler.ts`'s `HostScheduler`
+  are both directly reusable for link-checking — Session 5 should not
+  reimplement bounded fetching, just call these against discovered
+  destination URLs.
+- `HttpFetcherOptions.method` already supports `"HEAD"` for the
+  "GET/HEAD fallback behavior" section 14 Session 5 calls for.
+- `config/crawl-policy.yaml`'s `jsRendering` block is still read only for
+  shape (via Session 2's config loader) and not acted on anywhere — Session
+  6 is where `browserFallbackEnabled`/`perPortalAllowlist` actually change
+  fetcher behavior. `PageObservation.fetchMode` is hard-coded to `"http"`
+  everywhere in this session, exactly as instructed (leaving the field/hook
+  for Session 6 to populate `"browser"`).
