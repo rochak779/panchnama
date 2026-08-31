@@ -47,6 +47,14 @@ function makePolicy(overrides: Partial<FrontierPolicy["boundaries"]> = {}): Fron
     },
     exclusions: { routeCategories: [], denylistPathPatterns: [] },
     robotsAndIdentification: { userAgent: "PanchnamaTestBot/0.1", respectRobotsTxt: true },
+    jsRendering: {
+      browserFallbackEnabled: false,
+      perPortalAllowlist: [],
+      maxBrowserPagesPerPortal: 2,
+      maxBrowserResourceBytes: 1024 * 1024,
+      navigationTimeoutMs: 2000,
+      settleTimeoutMs: 200,
+    },
     urlNormalization: DEFAULT_URL_NORMALIZATION_OPTIONS,
     safeOperation: { disabledDomains: [] },
   };

@@ -1,10 +1,18 @@
 import { join } from "node:path";
-import type { AuditRun, LinkObservation, PageObservation, Portal } from "@panchnama/schema";
+import { existsSync, readdirSync } from "node:fs";
+import type {
+  AuditRun,
+  EvidenceArtifact,
+  LinkObservation,
+  PageObservation,
+  Portal,
+} from "@panchnama/schema";
 import {
   portalSchema,
   pageObservationSchema,
   linkObservationSchema,
   auditRunSchema,
+  evidenceArtifactSchema,
 } from "@panchnama/schema";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
@@ -12,9 +20,11 @@ import {
   checksConfigSchema,
   crawlPolicyConfigSchema,
   loadYamlConfig,
+  portalOverrideConfigSchema,
   sourceRegistryConfigSchema,
   type ChecksConfig,
   type CrawlPolicyConfig,
+  type PortalOverrideConfig,
   type SourceRegistryConfig,
 } from "../config/index.js";
 import { readLatestRunId } from "../inventory/write.js";
@@ -23,14 +33,60 @@ import { checkPortalLinks } from "./link-check.js";
 import { HostScheduler } from "./host-scheduler.js";
 import { RobotsCache } from "./robots-fetcher.js";
 import type { HttpFetcherOptions } from "./http-fetcher.js";
+import { BrowserManager } from "./browser-fetcher.js";
 import { buildAuditRun, getCodeRevision } from "./manifest.js";
 import { defaultCrawlRunId } from "./id.js";
 import { listExistingCrawlRunIds, writeCrawlRunAtomic } from "./write.js";
+
+/** Best-effort, short settle window given to browser-mode navigations
+ * after `domcontentloaded` fires, before reading whatever has rendered —
+ * see `browser-fetcher.ts`'s doc comment. Not exposed in
+ * `config/crawl-policy.yaml` (documented choice: this session reuses
+ * `boundaries.requestTimeoutMs` as the browser navigation timeout itself,
+ * rather than growing the schema for a second browser-specific timeout
+ * value; this settle window is a small, fixed implementation detail of how
+ * "readiness" is defined, not a boundary an auditor needs to tune). */
+const BROWSER_SETTLE_TIMEOUT_MS = 2000;
+
+/** Loads every `config/portals/<id>.yaml` override file present, returning
+ * a map from portal id to its `overrides.browserFallbackEnabled` value
+ * (only entries that actually set that field are included — a file that
+ * exists but doesn't set it, or no file at all, both mean "no override
+ * signal", per `isBrowserFallbackEligible`'s documented semantics).
+ * Malformed override files are silently skipped here — `sources:validate`
+ * is the place shape errors are surfaced; a crawl run should not fail
+ * because of an unrelated portal's broken override file. */
+function loadPortalBrowserOverrides(configDir: string): Map<string, boolean> {
+  const overrides = new Map<string, boolean>();
+  const portalsDir = join(configDir, "portals");
+  if (!existsSync(portalsDir)) {
+    return overrides;
+  }
+  const files = readdirSync(portalsDir).filter(
+    (name) => name.endsWith(".yaml") || name.endsWith(".yml"),
+  );
+  for (const fileName of files) {
+    const result = loadYamlConfig<PortalOverrideConfig>(
+      join(portalsDir, fileName),
+      portalOverrideConfigSchema,
+    );
+    if (result.ok && result.value.overrides.browserFallbackEnabled !== undefined) {
+      overrides.set(result.value.portalId, result.value.overrides.browserFallbackEnabled);
+    }
+  }
+  return overrides;
+}
 
 export interface RunCrawlParams {
   configDir: string;
   inventoryOutDir: string;
   crawlOutDir: string;
+  /** `data/evidence/` — where browser-mode screenshot evidence is written
+   * (section 4.3). Defaults to a sibling `evidence` directory next to
+   * `crawlOutDir` when omitted, which is convenient for tests that don't
+   * care about the exact evidence path; the real CLI entry point always
+   * passes the repo's actual `data/evidence` directory explicitly. */
+  evidenceOutDir?: string;
   repoRoot: string;
   /** Explicit run id, or auto-derived if omitted. */
   runId?: string;
@@ -183,6 +239,20 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
     crawlPolicy.robotsAndIdentification.userAgent,
   );
 
+  // Section 14 Session 6 — browser fallback. `browserManager` is always
+  // constructed (its constructor performs no I/O — see `BrowserManager`'s
+  // doc comment) but only ever actually launches a Chromium process when
+  // `crawlPortal` calls `getBrowser()`, which it only does for a portal
+  // `isBrowserFallbackEligible` has already approved. This means a run
+  // with `jsRendering.browserFallbackEnabled: false` launches zero
+  // browsers, full stop — the eligibility gate lives entirely in
+  // `frontier.ts`/`audit-core`, not here.
+  const browserManager = new BrowserManager();
+  const portalBrowserOverrides = loadPortalBrowserOverrides(params.configDir);
+  const evidenceOutDir = params.evidenceOutDir ?? join(params.crawlOutDir, "..", "evidence");
+  const allEvidenceArtifacts: EvidenceArtifact[] = [];
+  let anyBrowserFallbackUsed = false;
+
   const lines: string[] = [
     `crawl run: ${runId}`,
     `inventory: ${inventoryRunId}`,
@@ -199,14 +269,17 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
   let failed = 0;
   let partial = 0;
   const limitations: string[] = [
-    "Browser/JavaScript rendering fallback is not implemented (Session 6); client-rendered pages with no server-rendered links will show reduced coverage, both for extraction and for link discovery.",
-    "Link checking only ever issues HEAD (falling back to GET on a 405/501) or GET requests, and only against links actually discovered in server-rendered HTML — it does not simulate form submission or JS-triggered navigation.",
+    "Browser-mode fallback (Session 6) only fetches the single triggering page itself via Playwright — it does not expand the frontier queue or follow deeper links discovered through client-side rendering, so coverage of a client-rendered portal beyond its entry shell page remains bounded by ordinary HTTP-mode crawling.",
+    "Browser-mode fallback only activates for portals explicitly allowlisted (or override-enabled) in config, and only when the global `jsRendering.browserFallbackEnabled` switch is on; a client-rendered portal not configured this way will show reduced coverage, both for extraction and for link discovery.",
+    "Empty-shell, auth-wall, and CAPTCHA/bot-block detection (Session 6) are best-effort heuristics over rendered HTML, not guarantees — see docs/session-log.md for documented false-positive/false-negative limits.",
+    "Link checking only ever issues HEAD (falling back to GET on a 405/501) or GET requests, and only against links actually discovered in server-rendered or browser-rendered HTML — it does not simulate form submission or JS-triggered navigation.",
   ];
 
   for (const portal of portals) {
     // Section 14 Session 4 exit criterion: "one portal failure does not
     // stop the run" — isolate every portal's crawl in its own try/catch.
     try {
+      const portalBrowserOverride = portalBrowserOverrides.get(portal.id);
       const result = await crawlPortal(
         portal,
         runId,
@@ -214,6 +287,17 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
           boundaries: crawlPolicy.boundaries,
           exclusions: crawlPolicy.exclusions,
           robotsAndIdentification: crawlPolicy.robotsAndIdentification,
+          jsRendering: {
+            browserFallbackEnabled: crawlPolicy.jsRendering.browserFallbackEnabled,
+            perPortalAllowlist: crawlPolicy.jsRendering.perPortalAllowlist,
+            maxBrowserPagesPerPortal: crawlPolicy.jsRendering.maxBrowserPagesPerPortal,
+            maxBrowserResourceBytes: crawlPolicy.jsRendering.maxBrowserResourceBytes,
+            // Documented choice (see BROWSER_SETTLE_TIMEOUT_MS above):
+            // reuse the ordinary HTTP request timeout as the browser
+            // navigation timeout rather than adding a second config field.
+            navigationTimeoutMs: crawlPolicy.boundaries.requestTimeoutMs,
+            settleTimeoutMs: BROWSER_SETTLE_TIMEOUT_MS,
+          },
           urlNormalization: crawlPolicy.urlNormalization,
           safeOperation: { disabledDomains: crawlPolicy.safeOperation.disabledDomains },
         },
@@ -227,11 +311,18 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
             ? { retry: { sleepFn: params.sleepFn, randomFn: () => 0 } }
             : {}),
           dryRun: params.dryRun === true,
+          browserManager,
+          ...(portalBrowserOverride !== undefined ? { portalBrowserOverride } : {}),
+          evidenceOutDir,
         },
       );
 
       allPageObservations.push(...result.pageObservations);
       allSkipLog.push(...result.skipLog);
+      allEvidenceArtifacts.push(...result.evidenceArtifacts);
+      if (result.browserFallbackUsed) {
+        anyBrowserFallbackUsed = true;
+      }
 
       if (!params.dryRun && result.linkOccurrences.length > 0) {
         const linkObservations = await checkPortalLinks(
@@ -283,8 +374,16 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
     }
   }
 
+  // Session 6: the browser (if ever launched) must be closed on every exit
+  // path from here on — ephemeral per section 12.1, never left running
+  // past the end of the run that launched it.
+  async function finish<T extends RunCrawlResult>(result: T): Promise<T> {
+    await browserManager.close();
+    return result;
+  }
+
   if (params.dryRun) {
-    return { ok: true, dryRun: true, lines };
+    return finish({ ok: true, dryRun: true, lines });
   }
 
   const completedAt = now();
@@ -323,34 +422,45 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
 
   const manifestCheck = auditRunSchema.safeParse(manifest);
   if (!manifestCheck.success) {
-    return {
+    return finish({
       ok: false,
       lines: [
         "crawl FAILED — generated AuditRun manifest failed schema validation (this indicates a bug, not a crawl-target problem):",
         manifestCheck.error.message,
       ],
-    };
+    });
   }
   for (const obs of allPageObservations) {
     const check = pageObservationSchema.safeParse(obs);
     if (!check.success) {
-      return {
+      return finish({
         ok: false,
         lines: [
           `crawl FAILED — generated PageObservation "${obs.id}" failed schema validation: ${check.error.message}`,
         ],
-      };
+      });
     }
   }
   for (const obs of allLinkObservations) {
     const check = linkObservationSchema.safeParse(obs);
     if (!check.success) {
-      return {
+      return finish({
         ok: false,
         lines: [
           `crawl FAILED — generated LinkObservation "${obs.id}" failed schema validation: ${check.error.message}`,
         ],
-      };
+      });
+    }
+  }
+  for (const artifact of allEvidenceArtifacts) {
+    const check = evidenceArtifactSchema.safeParse(artifact);
+    if (!check.success) {
+      return finish({
+        ok: false,
+        lines: [
+          `crawl FAILED — generated EvidenceArtifact "${artifact.id}" failed schema validation: ${check.error.message}`,
+        ],
+      });
     }
   }
 
@@ -362,10 +472,11 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
       manifest,
       pageObservations: allPageObservations,
       linkObservations: allLinkObservations,
+      evidenceArtifacts: allEvidenceArtifacts,
       skipLog: allSkipLog,
     }));
   } catch (error) {
-    return { ok: false, lines: [error instanceof Error ? error.message : String(error)] };
+    return finish({ ok: false, lines: [error instanceof Error ? error.message : String(error)] });
   }
 
   lines.push(
@@ -373,8 +484,10 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
     `portals succeeded/partial/failed: ${succeeded}/${partial}/${failed}`,
     `page observations: ${allPageObservations.length}`,
     `link observations: ${allLinkObservations.length}`,
+    `evidence artifacts: ${allEvidenceArtifacts.length}`,
+    `browser fallback used: ${anyBrowserFallbackUsed}`,
     `output: ${outputDir}`,
   );
 
-  return { ok: true, dryRun: false, runId, manifest, outputDir, lines };
+  return finish({ ok: true, dryRun: false, runId, manifest, outputDir, lines });
 }

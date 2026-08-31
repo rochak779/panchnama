@@ -29,6 +29,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright Chromium browser
+        # Session 6's browser-fallback tests launch a real headless
+        # Chromium instance against local fixture HTTP servers (never live
+        # internet targets). `--with-deps` also installs the OS-level
+        # shared libraries Chromium needs on the runner image.
+        run: pnpm --filter @panchnama/audit-cli exec playwright install --with-deps chromium
+
       - name: Lint
         run: pnpm lint
 

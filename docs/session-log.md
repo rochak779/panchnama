@@ -1402,15 +1402,15 @@ end to end).
   things without cause.
 - **Dedup layer**: deduplication happens at the network-request layer, not
   the record layer. Every discovered link occurrence (one per source page
-  + anchor) becomes its own `LinkObservation` — full traceability, matching
-  section 5.6's one-`sourcePageUrl`-per-record schema literally — but the
-  actual HEAD/GET check for a given `normalizedDestinationUrl` runs exactly
-  once per portal crawl, and its result (`checkedAt`/`status`/`httpStatus`/
-  `errorCode`/`attempts`) is copied across every occurrence. "Group
-  identical failed destinations" (section 7.2) falls out of this for free:
-  group `link-observations.jsonl` by `normalizedDestinationUrl`.
+  - anchor) becomes its own `LinkObservation` — full traceability, matching
+    section 5.6's one-`sourcePageUrl`-per-record schema literally — but the
+    actual HEAD/GET check for a given `normalizedDestinationUrl` runs exactly
+    once per portal crawl, and its result (`checkedAt`/`status`/`httpStatus`/
+    `errorCode`/`attempts`) is copied across every occurrence. "Group
+    identical failed destinations" (section 7.2) falls out of this for free:
+    group `link-observations.jsonl` by `normalizedDestinationUrl`.
 - **HEAD/GET fallback heuristic**: HEAD is tried first. It is treated as a
-  *false* failure — worth retrying as GET — only when the server actually
+  _false_ failure — worth retrying as GET — only when the server actually
   responded with HTTP 405 or 501 (the two standard "this endpoint doesn't
   support HEAD" signals). Any other outcome (success, other 4xx/5xx,
   network/timeout failure) is trusted as-is with no GET fallback. Verified
@@ -1561,3 +1561,348 @@ by the command itself before writing.
 - Browser-rendered pages will discover links current server-rendered HTML
   cannot see at all (client-side-injected navigation) — expect materially
   higher link/page counts on allowlisted portals once Session 6 lands.
+
+---
+
+## Session 6 — Browser fallback
+
+**Date:** 2026-08-31
+**Goal:** Assess explicitly allowlisted client-rendered portals without
+making browser automation the default (implementation.md section 14,
+"Session 6").
+
+### Files changed
+
+- `packages/audit-core/src/browser-eligibility.ts` (new) — pure eligibility
+  gate: `isBrowserFallbackEligible({ globalEnabled, perPortalAllowlist,
+portalId, overrideEnabled })`.
+- `packages/audit-core/src/browser-eligibility.test.ts` (new).
+- `packages/audit-core/src/shell-detect.ts` (new) — pure empty-shell
+  heuristic over pre-computed signals (`visibleTextLength`, `linkCount`,
+  `hasAppRootMarker`, `htmlByteLength`).
+- `packages/audit-core/src/shell-detect.test.ts` (new).
+- `packages/audit-core/src/block-detect.ts` (new) — pure `detectAuthWall`
+  and `detectCaptchaOrBlock` string-heuristics over rendered HTML.
+- `packages/audit-core/src/block-detect.test.ts` (new).
+- `packages/audit-core/src/crawl-errors.ts` — added `BROWSER_AUTOMATION_FAILURE`
+  as a documented extra error code (same precedent as `SSRF_BLOCKED`/
+  `SCOPE_EXCLUDED`), for genuine Playwright launch/crash failures that
+  aren't a timeout/block/auth-wall.
+- `packages/audit-core/src/index.ts` — exports the three new modules.
+- `packages/audit-cli/src/crawl/browser-fetcher.ts` (new) — Playwright
+  Chromium adapter (`fetchWithBrowser`) behind the same `FetchAttemptResult`
+  shape `http-fetcher.ts` produces (extended, not duplicated, with an
+  optional `screenshot` buffer), plus `BrowserManager` (one lazily-launched
+  browser process reused across a run; every navigation gets a fresh,
+  isolated `browser.newContext()`, closed immediately after).
+- `packages/audit-cli/src/crawl/browser-fetcher.test.ts` (new) — 9 tests
+  against real Chromium + local fixture servers: ordinary fetch, client
+  redirect, CAPTCHA block, auth wall, timeout, resource cap, SSRF block,
+  and `BrowserManager` reuse/launch-count behavior.
+- `packages/audit-cli/src/crawl/html-extract.ts` — added
+  `computeShellSignals(html, linkCount)`, the Cheerio-dependent half of
+  shell detection (visible text length, SPA mount-point detection),
+  feeding `audit-core`'s pure `detectEmptyShell`.
+- `packages/audit-cli/src/crawl/evidence.ts` (new) — `writeScreenshotEvidence`
+  (writes a PNG under `data/evidence/<runId>/<portalId>/<pageObservationId>.png`
+  and returns a well-formed `EvidenceArtifact`, `privacyReviewed: false`)
+  and `shouldCaptureBrowserEvidence` (the "selected evidence only" trigger,
+  extracted as a pure function for direct unit testing).
+- `packages/audit-cli/src/crawl/evidence.test.ts` (new).
+- `packages/audit-cli/src/crawl/frontier.ts` — `FrontierPolicy` gained a
+  `jsRendering` block; `FrontierDeps` gained `browserManager`,
+  `portalBrowserOverride`, `evidenceOutDir`; `crawlPortal` now derives
+  eligibility once per portal (before the loop), and inside the loop,
+  after every successful HTML HTTP fetch, runs shell detection when
+  eligible and dispatches `fetchWithBrowser` (respecting
+  `maxBrowserPagesPerPortal`) producing a second `fetchMode: "browser"`
+  `PageObservation` through the SAME `extractHtml` call as HTTP mode;
+  `CrawlPortalResult` gained `evidenceArtifacts` and `browserFallbackUsed`.
+- `packages/audit-cli/src/crawl/frontier.test.ts` — `makePolicy` helper
+  updated with a (disabled) `jsRendering` block so existing tests keep
+  typechecking.
+- `packages/audit-cli/src/crawl/browser-fallback.test.ts` (new) — 8
+  frontier-level integration tests: shell-triggered fallback recovering
+  real content, global-switch-off (asserting zero browser launches),
+  not-allowlisted-and-no-override (zero launches), override-enables-
+  non-allowlisted-portal, disabling-override-wins-over-allowlist,
+  browser-mode page cap with recorded skip reason, and equivalent schema
+  output across fetch modes.
+- `packages/audit-cli/src/crawl/write.ts` — `writeCrawlRunAtomic` now also
+  writes `evidence-artifacts.jsonl` (same one-record-per-line convention).
+- `packages/audit-cli/src/crawl/run.ts` — loads every
+  `config/portals/*.yaml` override file (`loadPortalBrowserOverrides`,
+  new), constructs one `BrowserManager` per run (closed on every exit path
+  via a `finish()` wrapper), builds the `jsRendering` frontier-policy block
+  from `crawlPolicy.jsRendering` (reusing `boundaries.requestTimeoutMs` as
+  the browser navigation timeout, plus a fixed `BROWSER_SETTLE_TIMEOUT_MS
+= 2000`), collects/validates/writes `EvidenceArtifact`s, and updates
+  `AuditRun.limitations` text.
+- `RunCrawlParams` gained optional `evidenceOutDir` (defaults to a sibling
+  `evidence` directory next to `crawlOutDir` when omitted).
+- `packages/audit-cli/src/commands/crawl.test.ts` — `crawlPolicyYaml`/
+  `writeConfig` helpers extended with `browserFallbackEnabled`/
+  `perPortalAllowlist`/`maxBrowserPagesPerPortal` parameters; added a new
+  run-level wiring test proving a `config/portals/<id>.yaml` override file
+  enables browser fallback end-to-end and `evidence-artifacts.jsonl` is
+  written and schema-valid.
+- `packages/audit-cli/package.json` — added `playwright` dependency.
+- `.github/workflows/ci.yml` — added a step installing the Playwright
+  Chromium browser (`pnpm --filter @panchnama/audit-cli exec playwright
+install --with-deps chromium`) before the quality-gate steps.
+- `README.md` — documented the local `playwright install chromium` step.
+- `config/portals/README.md` — documented that `browserFallbackEnabled` is
+  now read/enforced (Session 6), and that `maxPagesPerPortal`/`maxDepth`/
+  `disabled` remain unread.
+
+### Decisions
+
+- **Common observation interface**: `browser-fetcher.ts`'s
+  `fetchWithBrowser` returns `BrowserFetchResult`, which `extends
+FetchAttemptResult` (imported directly from `http-fetcher.ts`, not
+  reimplemented) plus an optional `screenshot?: Buffer`. This lets
+  `frontier.ts` build a `PageObservation` from either an HTTP or a browser
+  result with the same field-mapping code shape, and both feed the exact
+  same `extractHtml` call — no duplicated extraction logic for browser
+  mode, per the task brief's explicit requirement.
+- **Eligibility gate + override/allowlist interaction**: documented in
+  `browser-eligibility.ts`'s doc comment. `globalEnabled: false` is an
+  absolute kill switch — nothing overrides it. When globally enabled, an
+  explicit per-portal override (`config/portals/<id>.yaml`'s
+  `overrides.browserFallbackEnabled`) is the most specific signal and wins
+  in either direction over `perPortalAllowlist` membership: an enabling
+  override activates a non-allowlisted portal (the "manual override" the
+  spec asks for); a disabling override deactivates an allowlisted one. No
+  override at all falls back to plain allowlist membership. Ordering is
+  enforced structurally in `frontier.ts`: eligibility is computed once,
+  before the crawl loop even starts, and the shell heuristic is only ever
+  consulted inside the `if (browserEligible && ...)` branch — it is
+  physically impossible for a non-eligible portal to reach shell detection.
+- **Shell-detection heuristic**: implemented as a pure function in
+  `audit-core` (`detectEmptyShell`) over signals Cheerio computes in
+  `audit-cli` (`computeShellSignals`) — keeping the domain/dependency
+  split established by prior sessions (pure logic in `audit-core`, I/O and
+  DOM parsing in `audit-cli`). Thresholds: <200 chars visible text AND <3
+  links, OR a dominant SPA mount-point element (`#app`/`#root`/`#__next`/
+  `#__nuxt`/`[data-reactroot]`, body has ≤2 element children) with <400
+  chars visible text. **Known false positives**: a legitimately minimal
+  static page (e.g. a short "service unavailable" notice) can trip the
+  thresholds and trigger an unnecessary (but capped, harmless) browser
+  fallback attempt. **Known false negatives**: a client-rendered page that
+  server-renders enough boilerplate chrome (nav/footer/cookie banner) to
+  clear the text/link thresholds while still hiding its real content
+  behind client-side JS will not be detected.
+- **Resource-cap enforcement mechanism**: Playwright has no `fetch`-style
+  streaming byte reader. Implemented by summing declared `content-length`
+  response headers as they arrive (`page.on("response")`, which fires on
+  headers-received, not body-complete) and racing that cumulative total
+  against the in-flight `page.goto()`; the instant the cap is exceeded,
+  the context is closed, aborting all further activity. Proven in
+  `browser-fetcher.test.ts` with a fixture that declares a 5 MB
+  `content-length` and then stalls the body forever — the fetcher returns
+  `RESPONSE_TOO_LARGE` well within the test timeout, off the header alone,
+  never waiting for (or needing) the stalled body. **Known limitation**: a
+  single response already streaming when detected may continue arriving
+  in the browser process briefly after the abort (Playwright's high-level
+  API has no byte-level mid-stream cancel the way `http-fetcher.ts`'s
+  `readBodyBounded` does); a response with no `content-length` header
+  contributes zero to the running total until a later response reveals
+  one.
+- **Evidence-capture trigger condition**: `shouldCaptureBrowserEvidence`
+  (pure, in `evidence.ts`) — capture only when the browser fetch either
+  succeeded (`ok: true`, meaning it was dispatched because a shell was
+  detected and it recovered content) OR was blocked
+  (`AUTOMATION_BLOCKED`/`AUTH_REQUIRED`). An unrelated browser-mode failure
+  (e.g. `READ_TIMEOUT`) does NOT capture a screenshot — there is nothing a
+  screenshot would usefully explain. Unit-tested directly (5 cases) rather
+  than only indirectly through a full browser fetch.
+- **Evidence storage convention**: `data/evidence/<runId>/<portalId>/
+<pageObservationId>.png`, with `EvidenceArtifact.storagePath` recording
+  the path relative to `data/evidence/` (matching the schema's own doc
+  note) and a new `evidence-artifacts.jsonl` file in the crawl run's
+  output directory (same one-record-per-line convention as the other two
+  `.jsonl` files), referencing artifacts by id. `privacyReviewed` is
+  always `false` — no human review has happened yet; Session 8's
+  publication gate is unaffected/unblocked by this.
+- **Block/auth-wall detection heuristics**: `detectAuthWall` matches a
+  login-shaped URL path plus a password field, OR both password+username
+  fields present, OR a login-shaped URL path alone. `detectCaptchaOrBlock`
+  matches a fixed list of common CAPTCHA-provider signatures (reCAPTCHA,
+  hCaptcha, Turnstile, DataDome, FunCaptcha/Arkose) and common English bot-
+  block interstitial phrasing. Both reuse the existing stable error codes
+  (`AUTH_REQUIRED`, `AUTOMATION_BLOCKED`) rather than inventing new ones,
+  per section 9.3. **Known limitations** (documented in each function's
+  doc comment): non-English or custom-branded auth walls/block pages are
+  not recognized; an auth wall at an unconventional path with no password
+  field is missed; a page merely mentioning CAPTCHA/bot-detection in
+  ordinary prose is a (low-probability, given the specific phrasing
+  chosen) false-positive risk.
+- **Browser navigation timeout / settle window**: reused
+  `boundaries.requestTimeoutMs` directly as the browser navigation timeout
+  (documented choice — avoids growing `crawl-policy.yaml`'s schema for a
+  second, largely-equivalent timeout value). Added a small, hard-coded
+  `BROWSER_SETTLE_TIMEOUT_MS = 2000` (not a config field) for the
+  best-effort post-`domcontentloaded` `networkidle` wait — short and
+  allowed to time out silently, since a page that never truly idles
+  (websockets, polling) would otherwise stall every browser fetch.
+- **Readiness signal**: `domcontentloaded` (fast, reliable) plus the short
+  best-effort `networkidle` settle window above — not `load` and not a
+  bare `networkidle` wait, both of which risk hanging on pages with
+  long-lived connections. **Known limitation**: a page whose real content
+  only appears after the settle window (deliberately staggered/lazy-loaded
+  skeleton screens) can still be captured as an empty shell even in
+  browser mode.
+- **SSRF for browser mode**: Playwright doesn't route through Node's
+  `fetch`, so `ssrf.ts`'s check-then-fetch path can't be reused directly.
+  `browser-fetcher.ts` performs the identical DNS-resolve-then-classify
+  step itself (calling the same `checkSsrf`/`isBlockedIpAddress`) before
+  ever calling `page.goto()`, refusing to navigate at all on a block.
+  Verified with a dedicated test asserting `errorCode: "SSRF_BLOCKED"` and
+  `server.requestCount === 0` — no navigation attempt reaches the network.
+  **Known limitation** (matching `http-fetcher.ts`'s own documented scope):
+  only the entry navigation is SSRF-checked; a page that itself
+  client-redirects to a different, resolvable-to-private host is not
+  re-checked hop-by-hop the way `http-fetcher.ts` re-checks each
+  server-side redirect.
+- **Isolation (section 12.1)**: one `Browser` process per run (perf), but
+  every navigation gets its own fresh `browser.newContext()`, closed
+  immediately in a `finally` block — no cookies/storage ever persist
+  across pages or portals. `BrowserManager.close()` is called on every
+  `runCrawl` exit path (dry-run, validation failure, write failure,
+  success) via a small `finish()` wrapper, so a browser is never left
+  running past the run that launched it.
+- **CI**: `.github/workflows/ci.yml` now runs `playwright install
+--with-deps chromium` right after `pnpm install`, before lint/typecheck/
+  test/build — required because the browser-fallback tests launch a real
+  Chromium instance. Local developers run the same `playwright install
+chromium` command once (documented in `README.md`).
+- **Browser-mode frontier scope**: a browser fallback fetches ONLY the
+  single triggering page — it does not expand the frontier queue from
+  browser-discovered links (kept out of scope this session; recorded as a
+  limitation). Links discovered on a successful browser-mode page ARE
+  still fed into `linkOccurrences` for link-checking, same as HTTP mode.
+
+### Tests run and results
+
+```
+pnpm lint        — pass (0 errors)
+pnpm typecheck   — pass (6/6 packages)
+pnpm test        — pass (322 tests across all packages;
+                    audit-cli: 27 files / 179 tests, incl. 6 new
+                    shell-detect/block-detect/browser-eligibility test
+                    files in audit-core (18 tests), 9 new
+                    browser-fetcher.test.ts cases (real Chromium + fixture
+                    servers), 8 new browser-fallback.test.ts frontier-level
+                    integration cases, 5 new evidence.test.ts cases, and 1
+                    new run-level wiring case in commands/crawl.test.ts)
+pnpm build       — pass (6/6 packages + Next.js app)
+```
+
+Playwright Chromium was already present in this environment's cache; for a
+fresh environment/CI, install it first with:
+
+```
+pnpm --filter @panchnama/audit-cli exec playwright install chromium
+```
+
+(CI runs `--with-deps chromium` to also pull OS-level shared libraries.)
+
+### Manual verification (local fixture portals, no live-internet targets)
+
+Ran `runCrawl()` directly (test-only `ssrf.allowLoopbackForTests` override,
+same pattern as Sessions 4/5) against three local fixture portals in one
+run: an ordinary server-rendered portal, a shell-page portal that IS
+allowlisted, and an identical shell-page portal that is NOT allowlisted.
+
+```
+crawl run: assam-2026-09-15-s6-manual
+portals: 3
+  [succeeded] ordinary-portal — 2 page(s)
+  [succeeded] allowlisted-portal — 1 page(s)
+  [succeeded] not-allowlisted-portal — 1 page(s)
+status: completed
+evidence artifacts: 1
+browser fallback used: true
+```
+
+**Outcome 1 — ordinary-portal (HTTP mode succeeds normally, no shell, no
+browser fallback):**
+
+```json
+{"fetchMode":"http","title":"Ordinary Portal","httpStatus":200}
+{"fetchMode":"http","title":"Ordinary Portal","httpStatus":200}
+```
+
+**Outcome 2 — allowlisted-portal (HTTP fetch is an empty shell; browser
+fallback correctly kicks in and finds real content):**
+
+```json
+{"fetchMode":"http","title":"Loading","httpStatus":200}
+{"fetchMode":"browser","title":"Real Assam Portal Content","httpStatus":200}
+```
+
+`evidence-artifacts.jsonl` for this run contains exactly one schema-valid
+`EvidenceArtifact` (`type: "screenshot"`, `privacyReviewed: false`),
+referencing a PNG actually written under `data/evidence/<runId>/
+allowlisted-portal/...png`.
+
+**Outcome 3 — not-allowlisted-portal (the SAME shell page produces NO
+browser fallback):**
+
+```json
+{ "fetchMode": "http", "title": "Loading", "httpStatus": 200 }
+```
+
+No second (browser-mode) observation was produced for this portal, and no
+evidence artifact references it — confirming eligibility gating works
+correctly even when the shell heuristic would otherwise fire.
+
+### Known limitations (deferred/best-effort, explicit)
+
+- Shell detection, auth-wall detection, and CAPTCHA/bot-block detection are
+  all best-effort heuristics with documented false-positive/false-negative
+  limits (see Decisions above) — none claim complete or perfect coverage.
+- Browser fallback fetches only the single triggering page; it never
+  expands the frontier queue from browser-discovered links.
+- The resource cap is enforced off declared `content-length` headers, not
+  true mid-stream byte accounting; a response already in flight when the
+  cap trips may finish arriving briefly after the abort.
+- SSRF checking for browser mode covers only the entry navigation, not
+  hop-by-hop client-side redirects to a different host.
+- `config/portals/*.yaml`'s `maxPagesPerPortal`, `maxDepth`, and `disabled`
+  override fields remain unread/unenforced (unchanged from Session 2/4).
+- Playwright requires its Chromium browser binary to be installed
+  separately from `pnpm install` (`playwright install chromium`) — a
+  fresh developer machine or CI image without this step will fail every
+  browser-fallback test with a clear Playwright error, not a silent
+  skip. CI now installs it automatically; this is a real, documented
+  environment dependency risk for anyone running `pnpm test` outside CI
+  for the first time.
+
+### Next session prerequisites (Session 7 — Deterministic audit rules)
+
+- `PageObservation.fetchMode` now genuinely takes both `"http"` and
+  `"browser"` values in real crawl output; Session 7's technical-health/
+  finding derivation must treat both fetch modes as valid successful
+  observations (a `browser`-mode success is not itself evidence of
+  degradation).
+- `PageObservation.errorCode` values `AUTH_REQUIRED` and
+  `AUTOMATION_BLOCKED` are now genuinely produced (previously only
+  theoretically documented in `crawl-errors.ts`) — Session 7 should map
+  these to `not_assessable` per section 7.1's
+  `availability.automation-blocked.v1` example rule and section 5.14's
+  "`not_assessable` must include a reason" invariant (the `errorCode` plus
+  `errorMessage` already carry that reason).
+- `EvidenceArtifact` records now exist in real crawl output for the first
+  time (`evidence-artifacts.jsonl` in each run's output directory,
+  `privacyReviewed: false`). Session 7/8 will need to reference these by
+  id from generated `Finding.evidenceRefs`, and Session 8's publication
+  gate must enforce that only `privacyReviewed: true` artifacts are
+  citable (unchanged requirement, now with real data to enforce it
+  against).
+- A portal-level `browserFallbackUsed` signal is directly computable from
+  a run's own `page-observations.jsonl` (`pageObservations.some(o =>
+o.fetchMode === "browser")`) — this is what
+  `PublishedPortalAssessment.crawlCoverage.browserFallbackUsed` should be
+  derived from when Session 8 wires publication; no new schema field was
+  needed to make this signal available.

@@ -6,6 +6,7 @@ import {
   auditRunSchema,
   pageObservationSchema,
   linkObservationSchema,
+  evidenceArtifactSchema,
   type Portal,
 } from "@panchnama/schema";
 import { computeConfigDigest } from "../config/digest.js";
@@ -34,7 +35,13 @@ sources:
 `;
 
 function crawlPolicyYaml(
-  overrides: { globalKillSwitch?: boolean; disabledDomains?: string[] } = {},
+  overrides: {
+    globalKillSwitch?: boolean;
+    disabledDomains?: string[];
+    browserFallbackEnabled?: boolean;
+    perPortalAllowlist?: string[];
+    maxBrowserPagesPerPortal?: number;
+  } = {},
 ): string {
   return `
 schemaVersion: "1.0.0"
@@ -57,9 +64,9 @@ robotsAndIdentification:
   contactUrl: "https://example.org/about"
   respectRobotsTxt: true
 jsRendering:
-  browserFallbackEnabled: false
-  perPortalAllowlist: []
-  maxBrowserPagesPerPortal: 5
+  browserFallbackEnabled: ${overrides.browserFallbackEnabled ?? false}
+  perPortalAllowlist: [${(overrides.perPortalAllowlist ?? []).map((p) => `"${p}"`).join(", ")}]
+  maxBrowserPagesPerPortal: ${overrides.maxBrowserPagesPerPortal ?? 5}
   maxBrowserResourceBytes: 1048576
 urlNormalization:
   trailingSlashPolicy: strip
@@ -83,7 +90,13 @@ checks:
 
 function writeConfig(
   configDir: string,
-  overrides: { globalKillSwitch?: boolean; disabledDomains?: string[] } = {},
+  overrides: {
+    globalKillSwitch?: boolean;
+    disabledDomains?: string[];
+    browserFallbackEnabled?: boolean;
+    perPortalAllowlist?: string[];
+    maxBrowserPagesPerPortal?: number;
+  } = {},
 ): void {
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, "sources.assam.yaml"), SOURCES_YAML, "utf8");
@@ -457,4 +470,88 @@ describe("runCrawlCommand", () => {
       await external.close();
     }
   });
+
+  it("run-level wiring: a portal-override file enables browser fallback and evidence-artifacts.jsonl is written and schema-valid", async () => {
+    workDir = mkdtempSync(join(tmpdir(), "panchnama-crawl-"));
+    const configDir = join(workDir, "config");
+    const inventoryOutDir = join(workDir, "inventory");
+    const crawlOutDir = join(workDir, "crawl");
+    const evidenceOutDir = join(workDir, "evidence");
+    // Globally enabled but with an EMPTY allowlist — only the per-portal
+    // override file below should make "shell-portal" eligible.
+    writeConfig(configDir, { browserFallbackEnabled: true, perPortalAllowlist: [] });
+    mkdirSync(join(configDir, "portals"), { recursive: true });
+    writeFileSync(
+      join(configDir, "portals", "shell-portal.yaml"),
+      `schemaVersion: "1.0.0"\nportalId: shell-portal\noverrides:\n  browserFallbackEnabled: true\n`,
+      "utf8",
+    );
+
+    let homeHits = 0;
+    const server = await startFixtureServer((req, res) => {
+      if (req.url === "/robots.txt") {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/html" });
+      if (req.url === "/") {
+        homeHits += 1;
+        if (homeHits === 1) {
+          // Empty client-rendered shell, on the plain HTTP fetch.
+          res.end(
+            `<html><head><title>Loading</title></head><body><div id="root"></div></body></html>`,
+          );
+          return;
+        }
+      }
+      // What browser rendering recovers (the second, browser-mode fetch of
+      // "/", or any other in-scope page).
+      res.end(
+        `<html lang="en"><head><title>Real Portal</title></head><body><h1>Welcome</h1><p>${"Real content. ".repeat(30)}</p><a href="/a">a</a><a href="/b">b</a><a href="/c">c</a></body></html>`,
+      );
+    });
+    try {
+      writeInventory(inventoryOutDir, "assam-20260101T000000Z", [
+        makePortal("shell-portal", `${server.url}/`, ["127.0.0.1"]),
+      ]);
+
+      const result = await runCrawlCommand({
+        configDir,
+        inventoryOutDir,
+        crawlOutDir,
+        evidenceOutDir,
+        repoRoot: workDir,
+        runId: "assam-2026-09-15-r6",
+        ssrf: { allowLoopbackForTests: true },
+        sleepFn: async () => {},
+        now: () => "2026-09-15T00:00:00Z",
+      });
+
+      expect(result.exitCode).toBe(0);
+      const outputDir = join(crawlOutDir, "assam-2026-09-15-r6");
+
+      const pageObs = readFileSync(join(outputDir, "page-observations.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l));
+      expect(pageObs.some((o) => o.fetchMode === "browser" && o.title === "Real Portal")).toBe(
+        true,
+      );
+
+      const evidencePath = join(outputDir, "evidence-artifacts.jsonl");
+      expect(existsSync(evidencePath)).toBe(true);
+      const evidenceLines = readFileSync(evidencePath, "utf8")
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l));
+      expect(evidenceLines.length).toBeGreaterThan(0);
+      for (const artifact of evidenceLines) {
+        expect(evidenceArtifactSchema.safeParse(artifact).success).toBe(true);
+        expect(existsSync(join(evidenceOutDir, artifact.storagePath))).toBe(true);
+      }
+    } finally {
+      await server.close();
+    }
+  }, 20000);
 });

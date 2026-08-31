@@ -9,7 +9,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { AuditRun, LinkObservation, PageObservation } from "@panchnama/schema";
+import type {
+  AuditRun,
+  EvidenceArtifact,
+  LinkObservation,
+  PageObservation,
+} from "@panchnama/schema";
 import type { SkipLogEntry } from "./frontier.js";
 
 /**
@@ -23,7 +28,10 @@ import type { SkipLogEntry } from "./frontier.js";
  * partial file is trivially detectable/truncatable), `link-observations.jsonl`
  * (Session 5, same one-record-per-line convention as page observations —
  * one `LinkObservation` per source-page/anchor occurrence of a discovered
- * destination, see `link-check.ts`'s doc comment), and `skip-log.json`
+ * destination, see `link-check.ts`'s doc comment), `evidence-artifacts.jsonl`
+ * (Session 6, same convention — one `EvidenceArtifact` per line; the actual
+ * screenshot image files it references live under `data/evidence/`, not
+ * here — see `evidence.ts`'s doc comment), and `skip-log.json`
  * (every URL that was scope-excluded, robots-disallowed, or budget-cut,
  * with its reason, for coverage reporting). `data/raw/crawl/latest` holds
  * the current `runId` as plain text, matching Session 3's inventory
@@ -35,6 +43,7 @@ export function writeCrawlRunAtomic(params: {
   manifest: AuditRun;
   pageObservations: PageObservation[];
   linkObservations: LinkObservation[];
+  evidenceArtifacts?: EvidenceArtifact[];
   skipLog: SkipLogEntry[];
 }): { outputDir: string } {
   const finalDir = join(params.outDir, params.runId);
@@ -63,6 +72,13 @@ export function writeCrawlRunAtomic(params: {
       join(stagingDir, "link-observations.jsonl"),
       params.linkObservations.map((o) => JSON.stringify(o)).join("\n") +
         (params.linkObservations.length > 0 ? "\n" : ""),
+      "utf8",
+    );
+    const evidenceArtifacts = params.evidenceArtifacts ?? [];
+    writeFileSync(
+      join(stagingDir, "evidence-artifacts.jsonl"),
+      evidenceArtifacts.map((a) => JSON.stringify(a)).join("\n") +
+        (evidenceArtifacts.length > 0 ? "\n" : ""),
       "utf8",
     );
     writeFileSync(

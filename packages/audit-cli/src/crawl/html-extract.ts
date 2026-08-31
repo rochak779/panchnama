@@ -46,6 +46,43 @@ export interface ExtractedPage {
   links: ExtractedLink[];
 }
 
+/** Signals consumed by `@panchnama/audit-core`'s `detectEmptyShell` — see
+ * that module's doc comment for the Session 6 shell-detection heuristic.
+ * Computed here (not in audit-core) because it needs Cheerio to find
+ * visible text and common SPA mount-point markers. */
+export interface ShellSignals {
+  visibleTextLength: number;
+  linkCount: number;
+  hasAppRootMarker: boolean;
+  htmlByteLength: number;
+}
+
+const APP_ROOT_SELECTORS = "#app, #root, #__next, #__nuxt, [data-reactroot]";
+
+/** Computes shell-detection signals from `html` (Cheerio-parsed, so
+ * malformed markup never throws). "Visible text" excludes `<script>` and
+ * `<style>` contents and collapses whitespace. `hasAppRootMarker` is true
+ * when the body contains one of a few well-known SPA mount-point elements
+ * and that element accounts for effectively all of the body's element
+ * content (i.e. the body isn't a normal page that merely happens to also
+ * contain, say, a `#root` div buried in otherwise ordinary content). */
+export function computeShellSignals(html: string, linkCount: number): ShellSignals {
+  const $ = cheerio.load(html);
+  $("script, style, noscript").remove();
+  const bodyText = $("body").text().replace(/\s+/g, " ").trim();
+
+  const appRoot = $(APP_ROOT_SELECTORS).first();
+  const bodyChildCount = $("body").children().length;
+  const hasAppRootMarker = appRoot.length > 0 && bodyChildCount <= 2;
+
+  return {
+    visibleTextLength: bodyText.length,
+    linkCount,
+    hasAppRootMarker,
+    htmlByteLength: Buffer.byteLength(html, "utf8"),
+  };
+}
+
 const MAX_TEXT_LENGTH = 200;
 
 function truncate(text: string): string {

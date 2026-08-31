@@ -1,10 +1,27 @@
 import { createHash } from "node:crypto";
-import { decideScope, normalizeUrl, type UrlNormalizationOptions } from "@panchnama/audit-core";
-import { SCHEMA_VERSIONS, type PageObservation, type Portal } from "@panchnama/schema";
+import {
+  decideScope,
+  detectEmptyShell,
+  isBrowserFallbackEligible,
+  normalizeUrl,
+  type UrlNormalizationOptions,
+} from "@panchnama/audit-core";
+import {
+  SCHEMA_VERSIONS,
+  type EvidenceArtifact,
+  type PageObservation,
+  type Portal,
+} from "@panchnama/schema";
 import type { HostScheduler } from "./host-scheduler.js";
 import { fetchWithRetry, type HttpFetcherOptions, type RetryOptions } from "./http-fetcher.js";
-import { extractHtml } from "./html-extract.js";
+import { extractHtml, computeShellSignals } from "./html-extract.js";
 import type { RobotsCache } from "./robots-fetcher.js";
+import {
+  fetchWithBrowser,
+  type BrowserFetchOptions,
+  type BrowserManager,
+} from "./browser-fetcher.js";
+import { shouldCaptureBrowserEvidence, writeScreenshotEvidence } from "./evidence.js";
 
 /**
  * Crawl frontier — implementation.md section 14 Session 4 ("Crawl frontier
@@ -56,6 +73,20 @@ export interface FrontierPolicy {
     userAgent: string;
     respectRobotsTxt: boolean;
   };
+  /** Section 6.4 / Session 6. `navigationTimeoutMs` reuses
+   * `boundaries.requestTimeoutMs` at the call site (documented choice — see
+   * `run.ts`); kept as its own field here so a caller/test can diverge from
+   * it explicitly. `settleTimeoutMs` bounds the best-effort post-
+   * `domcontentloaded` network-idle wait — see `browser-fetcher.ts`'s doc
+   * comment for why this is short and allowed to time out silently. */
+  jsRendering: {
+    browserFallbackEnabled: boolean;
+    perPortalAllowlist: string[];
+    maxBrowserPagesPerPortal: number;
+    maxBrowserResourceBytes: number;
+    navigationTimeoutMs: number;
+    settleTimeoutMs: number;
+  };
   urlNormalization: UrlNormalizationOptions;
   safeOperation: {
     disabledDomains: string[];
@@ -81,6 +112,16 @@ export interface CrawlPortalResult {
    * page this portal crawl visited — consumed by `checkPortalLinks`. Empty
    * in dry-run mode (no pages are actually fetched/parsed). */
   linkOccurrences: LinkOccurrence[];
+  /** `EvidenceArtifact` records produced by browser-mode fallback
+   * (Session 6) — only ever non-empty when the "selected evidence only"
+   * trigger condition fired (`evidence.ts`'s doc comment). */
+  evidenceArtifacts: EvidenceArtifact[];
+  /** Convenience rollup — `true` iff any `PageObservation` this portal
+   * produced has `fetchMode === "browser"`. This is the same signal
+   * `PublishedPortalAssessment.crawlCoverage.browserFallbackUsed` (section
+   * 5.10) will eventually be populated from, once Session 8 wires
+   * publication — computed here rather than re-derived by every caller. */
+  browserFallbackUsed: boolean;
 }
 
 export interface FrontierDeps {
@@ -90,6 +131,22 @@ export interface FrontierDeps {
   now?: () => string;
   retry?: Pick<RetryOptions, "sleepFn" | "randomFn">;
   dryRun?: boolean;
+  /** Session 6. Present only when browser-mode fallback could conceivably
+   * be used this run (i.e. the caller has already decided to construct
+   * one) — its own presence is NOT the eligibility gate; eligibility is
+   * still fully re-derived per portal from `policy.jsRendering` and
+   * `portalBrowserOverride` below via `isBrowserFallbackEligible`. */
+  browserManager?: BrowserManager;
+  /** The resolved `overrides.browserFallbackEnabled` value from this
+   * portal's `config/portals/<id>.yaml` file, if one exists and sets it;
+   * `undefined` when no override file exists or it doesn't set this field.
+   * Loaded by `run.ts`, not by this module (this module has no filesystem
+   * config-loading concerns). */
+  portalBrowserOverride?: boolean;
+  /** Directory screenshots are written under (`data/evidence/`). Required
+   * only when a browser-mode fetch actually captures a screenshot; unused
+   * otherwise. */
+  evidenceOutDir?: string;
 }
 
 interface QueueEntry {
@@ -145,11 +202,31 @@ export async function crawlPortal(
   const skipLog: SkipLogEntry[] = [];
   const plannedUrls: string[] = [];
   const linkOccurrences: LinkOccurrence[] = [];
+  const evidenceArtifacts: EvidenceArtifact[] = [];
   let sequence = 0;
   let pagesFetched = 0;
   let entryOk = false;
   let entryChecked = false;
   let sawError = false;
+
+  // Section 14 Session 6 — eligibility is derived ONCE per portal, up
+  // front, and never re-derived per page. Per the module doc comment and
+  // `isBrowserFallbackEligible`'s own doc comment: this gate is checked
+  // FIRST; the empty-shell heuristic below is only ever consulted when
+  // this is true. Getting this ordering backwards would let a shell-
+  // looking page on a non-allowlisted portal trigger a browser launch,
+  // violating "never activates globally without policy approval."
+  const browserEligibility = isBrowserFallbackEligible({
+    globalEnabled: policy.jsRendering.browserFallbackEnabled,
+    perPortalAllowlist: policy.jsRendering.perPortalAllowlist,
+    portalId: portal.id,
+    ...(deps.portalBrowserOverride !== undefined
+      ? { overrideEnabled: deps.portalBrowserOverride }
+      : {}),
+  });
+  const browserEligible =
+    browserEligibility.eligible && deps.browserManager !== undefined && !dryRun;
+  let browserPagesUsed = 0;
 
   const seedUrls = [portal.canonicalUrl, ...portal.alternateUrls];
   const queue: QueueEntry[] = seedUrls.map((url) => ({ url, depth: 0 }));
@@ -307,6 +384,139 @@ export async function crawlPortal(
         }
       }
     }
+
+    // Section 14 Session 6 — browser-mode fallback. Eligibility (checked
+    // first, above, once per portal) gates this entirely; the empty-shell
+    // heuristic only ever runs for an already-eligible portal. Browser
+    // fallback fetches ONLY the triggering page itself — it does not
+    // expand the frontier queue from browser-discovered links (kept out of
+    // scope this session; see docs/session-log.md).
+    if (
+      browserEligible &&
+      result.ok &&
+      extracted !== undefined &&
+      isHtmlContentType(result.contentType)
+    ) {
+      const shellSignals = computeShellSignals(result.bodyText ?? "", extracted.links.length);
+      const shellCheck = detectEmptyShell(shellSignals);
+
+      if (shellCheck.isEmptyShell) {
+        if (browserPagesUsed >= policy.jsRendering.maxBrowserPagesPerPortal) {
+          skip(
+            norm.normalizedUrl,
+            entry.depth,
+            `browser fallback skipped — maxBrowserPagesPerPortal (${policy.jsRendering.maxBrowserPagesPerPortal}) already reached this run (shell reason: ${shellCheck.reason})`,
+          );
+        } else {
+          browserPagesUsed += 1;
+          const browser = await deps.browserManager!.getBrowser();
+          const browserOptions: BrowserFetchOptions = {
+            navigationTimeoutMs: policy.jsRendering.navigationTimeoutMs,
+            settleTimeoutMs: policy.jsRendering.settleTimeoutMs,
+            maxResourceBytes: policy.jsRendering.maxBrowserResourceBytes,
+            userAgent: policy.robotsAndIdentification.userAgent,
+            allowedSchemes: policy.boundaries.allowedSchemes,
+            captureScreenshot: true,
+            ...(deps.ssrf !== undefined ? { ssrf: deps.ssrf } : {}),
+          };
+          const browserResult = await deps.hostScheduler.schedule(hostname, () =>
+            fetchWithBrowser(norm.normalizedUrl, browser, browserOptions),
+          );
+
+          sequence += 1;
+          const browserDigest = bodyDigest(browserResult.bodyText);
+          const browserExtracted = browserResult.ok
+            ? extractHtml(browserResult.bodyText ?? "", browserResult.finalUrl)
+            : undefined;
+
+          const browserObservationId = `${runId}-${portal.id}-p${sequence}`;
+          let browserArtifactRefs: string[] = [];
+
+          // "Selected evidence only" (evidence.ts's doc comment): capture
+          // only when the browser fetch either recovered real content from
+          // a detected shell, or was blocked/auth-walled — never on a
+          // screenshot with nothing to explain.
+          const shouldCaptureEvidence =
+            deps.evidenceOutDir !== undefined &&
+            shouldCaptureBrowserEvidence({
+              ok: browserResult.ok,
+              ...(browserResult.errorCode !== undefined
+                ? { errorCode: browserResult.errorCode }
+                : {}),
+              hasScreenshot: browserResult.screenshot !== undefined,
+            });
+          if (shouldCaptureEvidence) {
+            const artifact = writeScreenshotEvidence({
+              runId,
+              portalId: portal.id,
+              pageObservationId: browserObservationId,
+              sourceUrl: browserResult.finalUrl,
+              screenshot: browserResult.screenshot!,
+              description: browserResult.ok
+                ? `Browser-mode screenshot: the HTTP fetch looked like an empty client-rendered shell (${shellCheck.reason}); browser rendering recovered content.`
+                : `Browser-mode screenshot: navigation was classified ${browserResult.errorCode} (${browserResult.errorMessage ?? "no message"}).`,
+              capturedAt: now(),
+              evidenceOutDir: deps.evidenceOutDir!,
+            });
+            evidenceArtifacts.push(artifact);
+            browserArtifactRefs = [artifact.id];
+          }
+
+          const browserObservation: PageObservation = {
+            id: browserObservationId,
+            schemaVersion: SCHEMA_VERSIONS.pageObservation,
+            runId,
+            portalId: portal.id,
+            requestedUrl: norm.normalizedUrl,
+            ...(browserResult.finalUrl !== norm.normalizedUrl
+              ? { finalUrl: browserResult.finalUrl }
+              : {}),
+            ...(entry.discoveredFrom !== undefined ? { discoveredFrom: entry.discoveredFrom } : {}),
+            checkedAt: now(),
+            attempt: 1,
+            fetchMode: "browser",
+            ...(browserResult.httpStatus !== undefined
+              ? { httpStatus: browserResult.httpStatus }
+              : {}),
+            redirectChain: browserResult.redirectChain,
+            ...(browserResult.contentType !== undefined
+              ? { contentType: browserResult.contentType }
+              : {}),
+            durationMs: browserResult.durationMs,
+            ...(browserExtracted?.title !== undefined ? { title: browserExtracted.title } : {}),
+            ...(browserExtracted?.canonical !== undefined
+              ? { canonical: browserExtracted.canonical }
+              : {}),
+            ...(browserExtracted?.language !== undefined
+              ? { language: browserExtracted.language }
+              : {}),
+            ...(browserDigest !== undefined ? { bodyDigest: browserDigest } : {}),
+            ...(browserResult.errorCode !== undefined
+              ? { errorCode: browserResult.errorCode }
+              : {}),
+            ...(browserResult.errorMessage !== undefined
+              ? { errorMessage: browserResult.errorMessage }
+              : {}),
+            robotsDecision,
+            artifactRefs: browserArtifactRefs,
+          };
+          pageObservations.push(browserObservation);
+
+          if (browserExtracted !== undefined) {
+            for (const link of browserExtracted.links) {
+              linkOccurrences.push({
+                portalId: portal.id,
+                sourcePageUrl: norm.normalizedUrl,
+                rawHref: link.rawHref,
+                ...(link.resolvedUrl !== undefined ? { resolvedUrl: link.resolvedUrl } : {}),
+                ...(link.anchorText !== undefined ? { anchorText: link.anchorText } : {}),
+                ...(link.context !== undefined ? { context: link.context } : {}),
+              });
+            }
+          }
+        }
+      }
+    }
   }
 
   const status: CrawlPortalResult["status"] = !entryOk
@@ -323,5 +533,7 @@ export async function crawlPortal(
     status,
     pagesFetched,
     linkOccurrences,
+    evidenceArtifacts,
+    browserFallbackUsed: pageObservations.some((o) => o.fetchMode === "browser"),
   };
 }

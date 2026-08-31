@@ -104,6 +104,21 @@ Database and audit-CLI commands (`pnpm db:*`, `pnpm audit *`,
 `pnpm experiences:*`) are introduced by the sessions that build the
 database and CLI (see `docs/session-log.md`) and are not available yet.
 
+### Browser-fallback crawl tests (Playwright)
+
+The crawler's allowlisted browser-rendering fallback (implementation.md
+section 6.4) is implemented with Playwright. Its tests launch a real
+headless Chromium instance against local fixture HTTP servers only — never
+live internet targets. Before running `pnpm test` (or
+`pnpm --filter @panchnama/audit-cli test`) for the first time, install the
+Chromium browser binary:
+
+```bash
+pnpm --filter @panchnama/audit-cli exec playwright install chromium
+```
+
+CI installs this automatically (see `.github/workflows/ci.yml`).
+
 ## Contributing / working with an AI coding agent
 
 See [`AGENTS.md`](./AGENTS.md) for repository-specific rules, and

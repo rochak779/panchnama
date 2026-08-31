@@ -23,6 +23,7 @@
     "@panchnama/audit-core": "workspace:*",
     "@panchnama/schema": "workspace:*",
     "cheerio": "^1.2.0",
+    "playwright": "^1.62.1",
     "yaml": "^2.9.0",
     "zod": "^3.25.76"
   }

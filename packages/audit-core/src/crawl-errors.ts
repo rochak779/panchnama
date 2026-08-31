@@ -28,6 +28,13 @@
  *     is available here for a future caller that does want to flag it.
  *   - INTERNAL_AUDIT_ERROR is the catch-all for any exception this module
  *     cannot classify more specifically.
+ *   - BROWSER_AUTOMATION_FAILURE is a Session 6 documented extra (following
+ *     the same precedent as SSRF_BLOCKED/SCOPE_EXCLUDED): a Playwright
+ *     browser launch/crash/navigation-machinery failure that is not itself
+ *     a timeout, block, or auth-wall (those get their own reused codes —
+ *     READ_TIMEOUT, AUTOMATION_BLOCKED, AUTH_REQUIRED — per section 9.3's
+ *     "reuse existing codes where they map cleanly" instruction). Emitted
+ *     only by `packages/audit-cli/src/crawl/browser-fetcher.ts`.
  */
 
 export const CRAWL_ERROR_CODES = [
@@ -48,6 +55,7 @@ export const CRAWL_ERROR_CODES = [
   "INTERNAL_AUDIT_ERROR",
   "SSRF_BLOCKED",
   "SCOPE_EXCLUDED",
+  "BROWSER_AUTOMATION_FAILURE",
 ] as const;
 
 export type CrawlErrorCode = (typeof CRAWL_ERROR_CODES)[number];

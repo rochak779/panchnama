@@ -21,3 +21,6 @@ export * from "./ip-range.js";
 export * from "./crawl-scope.js";
 export * from "./robots-txt.js";
 export * from "./link-scan.js";
+export * from "./browser-eligibility.js";
+export * from "./shell-detect.js";
+export * from "./block-detect.js";

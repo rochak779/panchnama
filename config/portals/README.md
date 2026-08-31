@@ -25,3 +25,11 @@ no override files exist here yet either. `sources:validate` validates the
 _shape_ of any file placed here, but cannot check that `portalId` refers to
 a real portal until Session 3's inventory exists — see
 docs/session-log.md, "Known limitations".
+
+**Status (Session 6):** `overrides.browserFallbackEnabled` is now actually
+read and enforced by `pnpm audit crawl` (`packages/audit-cli/src/crawl/run.ts`
+loads every file here and feeds each portal's resolved value into the
+browser-fallback eligibility gate — see `packages/audit-core/src/
+browser-eligibility.ts` for the documented override + allowlist
+interaction). `maxPagesPerPortal`, `maxDepth`, and `disabled` remain
+unread/unenforced, a documented limitation carried forward.
