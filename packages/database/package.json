@@ -12,9 +12,26 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:check": "tsx src/scripts/check.ts",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "db:studio": "drizzle-kit studio",
+    "experiences:queue": "tsx src/scripts/experiences-queue.ts",
+    "experiences:moderate": "tsx src/scripts/experiences-moderate.ts",
+    "experiences:aggregate": "tsx src/scripts/experiences-aggregate.ts",
+    "experiences:retention": "tsx src/scripts/experiences-retention.ts"
+  },
+  "dependencies": {
+    "@panchnama/schema": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

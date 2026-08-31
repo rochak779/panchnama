@@ -18,7 +18,19 @@
     "test": "pnpm -r --workspace-concurrency=1 run test",
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "clean": "pnpm -r run clean",
-    "audit": "pnpm --filter @panchnama/audit-cli run start"
+    "audit": "pnpm --filter @panchnama/audit-cli run start",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset:destructive": "docker compose down -v",
+    "db:generate": "pnpm --filter @panchnama/database run db:generate",
+    "db:migrate": "pnpm --filter @panchnama/database run db:migrate",
+    "db:check": "pnpm --filter @panchnama/database run db:check",
+    "db:seed": "pnpm --filter @panchnama/database run db:seed",
+    "db:studio": "pnpm --filter @panchnama/database run db:studio",
+    "experiences:queue": "pnpm --filter @panchnama/database run experiences:queue",
+    "experiences:moderate": "pnpm --filter @panchnama/database run experiences:moderate --",
+    "experiences:aggregate": "pnpm --filter @panchnama/database run experiences:aggregate --",
+    "experiences:retention": "pnpm --filter @panchnama/database run experiences:retention"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

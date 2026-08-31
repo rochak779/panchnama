@@ -1,0 +1,462 @@
+{
+  "id": "19aa4470-0540-42c2-bb95-439ece151781",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.experience_submissions": {
+      "name": "experience_submissions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1.0.0'"
+        },
+        "portal_id": {
+          "name": "portal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "occurred_on": {
+          "name": "occurred_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_type": {
+          "name": "task_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_description": {
+          "name": "task_description",
+          "type": "varchar(280)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "themes": {
+          "name": "themes",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "device_type": {
+          "name": "device_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "experience_rating": {
+          "name": "experience_rating",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "free_text": {
+          "name": "free_text",
+          "type": "varchar(1000)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consent_to_publish": {
+          "name": "consent_to_publish",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "privacy_flags": {
+          "name": "privacy_flags",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "duplicate_of": {
+          "name": "duplicate_of",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "seed_key": {
+          "name": "seed_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "experience_submissions_portal_id_idx": {
+          "name": "experience_submissions_portal_id_idx",
+          "columns": [
+            {
+              "expression": "portal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "experience_submissions_created_at_idx": {
+          "name": "experience_submissions_created_at_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "experience_submissions_seed_key_unique": {
+          "name": "experience_submissions_seed_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["seed_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "experience_submissions_outcome_check": {
+          "name": "experience_submissions_outcome_check",
+          "value": "\"experience_submissions\".\"outcome\" IN ('completed', 'partially_completed', 'not_completed', 'information_only')"
+        },
+        "experience_submissions_device_type_check": {
+          "name": "experience_submissions_device_type_check",
+          "value": "\"experience_submissions\".\"device_type\" IS NULL OR \"experience_submissions\".\"device_type\" IN ('mobile', 'desktop', 'tablet', 'other')"
+        },
+        "experience_submissions_source_check": {
+          "name": "experience_submissions_source_check",
+          "value": "\"experience_submissions\".\"source\" IN ('public_form', 'research_interview')"
+        },
+        "experience_submissions_rating_check": {
+          "name": "experience_submissions_rating_check",
+          "value": "\"experience_submissions\".\"experience_rating\" IS NULL OR \"experience_submissions\".\"experience_rating\" BETWEEN 1 AND 5"
+        },
+        "experience_submissions_themes_check": {
+          "name": "experience_submissions_themes_check",
+          "value": "\"experience_submissions\".\"themes\" <@ ARRAY['availability', 'navigation', 'content_clarity', 'outdated_information', 'login_or_otp', 'form_or_validation', 'payment', 'document_upload', 'mobile_usability', 'language', 'accessibility', 'support', 'other']::text[]"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.experience_moderation": {
+      "name": "experience_moderation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "submission_id": {
+          "name": "submission_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "moderated_at": {
+          "name": "moderated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "moderation_reason_code": {
+          "name": "moderation_reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "public_text": {
+          "name": "public_text",
+          "type": "varchar(1000)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "experience_moderation_status_idx": {
+          "name": "experience_moderation_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "experience_moderation_pending_idx": {
+          "name": "experience_moderation_pending_idx",
+          "columns": [
+            {
+              "expression": "submission_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"experience_moderation\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "experience_moderation_submission_id_experience_submissions_id_fk": {
+          "name": "experience_moderation_submission_id_experience_submissions_id_fk",
+          "tableFrom": "experience_moderation",
+          "tableTo": "experience_submissions",
+          "columnsFrom": ["submission_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "experience_moderation_submission_id_unique": {
+          "name": "experience_moderation_submission_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["submission_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "experience_moderation_status_check": {
+          "name": "experience_moderation_status_check",
+          "value": "\"experience_moderation\".\"status\" IN ('pending', 'approved', 'rejected', 'needs_redaction')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.experience_abuse_keys": {
+      "name": "experience_abuse_keys",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "keyed_hash": {
+          "name": "keyed_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "portal_id": {
+          "name": "portal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "experience_abuse_keys_hash_created_idx": {
+          "name": "experience_abuse_keys_hash_created_idx",
+          "columns": [
+            {
+              "expression": "keyed_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "experience_abuse_keys_hash_portal_created_idx": {
+          "name": "experience_abuse_keys_hash_portal_created_idx",
+          "columns": [
+            {
+              "expression": "keyed_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "portal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "experience_abuse_keys_expires_at_idx": {
+          "name": "experience_abuse_keys_expires_at_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.experience_schema_meta": {
+      "name": "experience_schema_meta",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "'singleton'"
+        },
+        "experience_submission_schema_version": {
+          "name": "experience_submission_schema_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "portal_experience_summary_schema_version": {
+          "name": "portal_experience_summary_schema_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_migrated_at": {
+          "name": "last_migrated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

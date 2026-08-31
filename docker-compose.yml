@@ -1,0 +1,34 @@
+# Local PostgreSQL for citizen-experience persistence only (implementation.md
+# section 9.5 / section 4.3). Audit/crawler data never lives here.
+#
+# Credentials below are safe local-dev defaults (not secrets) matching
+# .env.example; override any of them via .env.local for local customization,
+# and never point POSTGRES_PORT/host env vars at a real preview/production
+# database from this file.
+#
+# `pnpm db:up`   -> docker compose up -d
+# `pnpm db:down` -> docker compose down (data-preserving; does NOT pass -v)
+# `pnpm db:reset:destructive` -> docker compose down -v (DELETES the volume)
+
+services:
+  postgres:
+    image: postgres:16.4
+    container_name: panchnama-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-panchnama}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-panchnama}
+      POSTGRES_DB: ${POSTGRES_DB:-panchnama}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - panchnama_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-panchnama} -d ${POSTGRES_DB:-panchnama}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  panchnama_postgres_data:
+    name: panchnama_postgres_data

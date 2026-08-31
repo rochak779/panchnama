@@ -2609,3 +2609,431 @@ severity table, suggested-action table, one priority critical finding for
   approach, per section 9.5's "foreign-key validation of portal_id against
   a synchronized published-portal registry or equivalent application
   validation."
+
+---
+
+## Session 9 — Database foundation and moderation storage
+
+**Goal:** Add a production-shaped PostgreSQL persistence layer for
+anonymous experience submissions, without moving audit data into a
+database. This is the hard pivot the previous session's log flagged: a
+structurally independent subsystem (PostgreSQL + Drizzle + Docker Compose)
+for citizen-experience storage and offline moderation.
+
+### Files changed
+
+- `packages/database/package.json` — real dependencies (`drizzle-orm`,
+  `postgres`, `zod`, `@panchnama/schema`) and devDependencies
+  (`drizzle-kit`, `tsx`), plus `db:*`/`experiences:*` scripts.
+- `packages/database/drizzle.config.ts` — Drizzle Kit config (schema path,
+  migrations output dir, `.env.local`/`.env` loading).
+- `packages/database/drizzle/0000_strong_luckman.sql` — first committed
+  migration (all four tables, indexes, check constraints, one FK).
+- `packages/database/vitest.config.ts` — disables file-level parallelism
+  (integration tests share one test database).
+- `packages/database/src/constants.ts` — centralised tunables (retention
+  thresholds, minimum display threshold, enum-value lists, length bounds,
+  seed-tag prefix).
+- `packages/database/src/schema/{submissions,moderation,abuseKeys,schemaMeta,index}.ts`
+  — Drizzle table definitions.
+- `packages/database/src/env.ts` — Zod-validated env loading (upward
+  `.env.local`/`.env` search), `requireDatabaseUrl`, retention getters.
+- `packages/database/src/errors.ts` — typed, free-text-safe error classes.
+- `packages/database/src/client.ts` — `createDbClient` connection lifecycle.
+- `packages/database/src/repository/{mapping,submissions,moderation,reads,retention,abuseKeys,index}.ts`
+  — typed repository functions.
+- `packages/database/src/fixtures/{portals,seedData}.ts` — fixture portal
+  ids and deterministic seed dataset.
+- `packages/database/src/scripts/{migrate,check,seed,experiences-queue,experiences-moderate,experiences-aggregate,experiences-retention,flags}.ts`
+  — the CLI commands.
+- `packages/database/src/testSupport/testDb.ts` — shared integration-test
+  database plumbing (availability check, truncation, teardown).
+- `packages/database/src/repository/*.test.ts`,
+  `*.integration.test.ts` — unit + real-Postgres integration tests.
+- `packages/database/src/index.ts`, `src/index.test.ts` — package entry
+  point, updated from the Session 0 placeholder.
+- `packages/database/README.md` — local dev, env vars, test-database
+  strategy, backup/reset documentation.
+- `docker-compose.yml` (new, repo root) — pinned `postgres:16.4`,
+  healthcheck, named volume, env-var-configured credentials/port.
+- `.env.example` — replaced the Session 0 placeholder comment with real
+  `DATABASE_URL`/`TEST_DATABASE_URL`/`POSTGRES_*`/retention-override
+  documentation, and a reserved-but-unused `EXPERIENCE_ABUSE_KEY_SECRET`.
+- `package.json` (root) — added `db:up`, `db:down`, `db:reset:destructive`,
+  `db:generate`, `db:migrate`, `db:check`, `db:seed`, `db:studio`,
+  `experiences:queue`, `experiences:moderate`, `experiences:aggregate`,
+  `experiences:retention`.
+
+Not touched: `packages/audit-cli`, `packages/audit-core`,
+`packages/schema/src/experience.ts` (or any other schema source file),
+`apps/web`, `data/{raw,review,published,evidence}`.
+
+### Decisions
+
+- **Submissions/moderation table split — one-to-one, decision-overwrite,
+  not decision-history.** `experience_submissions` holds the immutable
+  original (including original `freeText`); `experience_moderation` holds
+  the decision (`status`, `moderatedAt`, `moderationReasonCode`, redacted
+  `publicText`), created with `status: "pending"` in the same transaction
+  as the submission, and later updated in place by
+  `recordModerationDecision`. `submission_id` is `unique` and the FK has
+  `onDelete: "cascade"`. Chose overwrite-latest over a decision-history
+  table because `moderatedAt` is singular in the `ExperienceSubmission` Zod
+  shape this data round-trips into, and a moderator re-deciding is expected
+  to be a rare correction, not something needing an audit trail this
+  session. A history table is a documented, deferred extension.
+- **UUID generation — Postgres-side (`gen_random_uuid()`), not
+  application-side.** `id: uuid("id").primaryKey().defaultRandom()` on
+  both `experience_submissions` and `experience_moderation`.
+  `gen_random_uuid()` is built into PostgreSQL core as of version 13 (no
+  `pgcrypto` extension needed), and the pinned `postgres:16.4` image has
+  it. This is the more literal reading of section 9.5's "UUID primary keys
+  generated server-side." Verified canonical hyphenated UUID strings satisfy
+  `packages/schema`'s `stableId` regex (`[A-Za-z0-9._~-]+`) — confirmed by
+  `mapping.test.ts`'s round-trip test parsing a real generated id.
+- **`portal_id` — application-level validation, not a hard DB foreign
+  key.** Sessions 0-8 produce published portals as static JSON
+  (`data/published/<runId>/portals`), not a database table. Building a live
+  sync mechanism from that static JSON into Postgres purely to get a hard
+  FK is disproportionate for this session's scope (implementation.md
+  section 9.5 explicitly allows "equivalent application validation").
+  `createPendingSubmission` takes an `isKnownPortalId` check supplied by
+  the caller and rejects unknown portal ids before any row is written (see
+  the "rejects an unknown portal id... before writing any row" integration
+  test). `src/fixtures/portals.ts` supplies a dev/test implementation
+  backed by the two Session 1 fixture portal ids
+  (`portal-agri-assam`, `portal-agri-farmers-welfare`, copied as literal
+  strings rather than imported, since `@panchnama/schema`'s package.json
+  exports only its compiled `.` entry point and this session must not
+  modify that package). Session 10's real API layer is expected to supply
+  a real implementation backed by the actual published portal set once real
+  Assam portals exist. **Known limitation:** no hard FK means a bug in the
+  caller-supplied validator, or a caller that skips it entirely, could
+  write an orphaned `portal_id`; this is an accepted, documented tradeoff,
+  not an oversight.
+- **Themes storage — `text[]` column with a CHECK constraint, not a join
+  table.** `themes text[] NOT NULL DEFAULT '{}'::text[]` with
+  `CHECK (themes <@ ARRAY[...]::text[])` mirroring
+  `EXPERIENCE_THEME_VALUES` exactly. Simplest correct design for a
+  case-study-scale prototype; a normalized join table is more "correct"
+  relationally but adds a table, a join, and migration complexity this
+  session's scale doesn't need. `privacy_flags` uses the same pattern
+  (array column, but unconstrained since privacy-flag codes are an
+  evolving, Session 10-owned vocabulary, not a closed enum).
+- **Abuse-key storage — one row per event, not a rolling counter
+  column.** `experience_abuse_keys` has no counter field; each row is one
+  submission-attempt event (`keyed_hash`, `portal_id`, `created_at`,
+  `expires_at`). This is what makes a _rolling_ 24-hour window
+  (implementation.md section 9.6's "max 5 per 24h across portals, max 2 per
+  portal per 24h") answerable correctly with
+  `COUNT(*) WHERE keyed_hash = ? AND created_at > now() - interval '24
+hours' [AND portal_id = ?]` — a single counter column would need a reset
+  boundary (calendar day, fixed window) that section 9.6 explicitly warns
+  against. This session only builds the table, `recordAbuseKeyEvent`,
+  `countEventsInWindow`, and `deleteExpiredAbuseKeys` — the actual
+  rate-limiting decision logic (thresholds, IP→HMAC hashing) is
+  Session 10's job; no code in this package reads
+  `EXPERIENCE_ABUSE_KEY_SECRET`.
+- **`experience_schema_meta` — deliberately thin.** A single-row table
+  recording which `@panchnama/schema` `ExperienceSubmission`/
+  `PortalExperienceSummary` schema version (from `SCHEMA_VERSIONS` in
+  `packages/schema/src/common.ts`) this database was last migrated
+  against, plus `lastMigratedAt`. Drizzle Kit's own internal migration
+  journal (`drizzle.__drizzle_migrations`) already tracks _which migration
+  files_ have been applied — this table is not a duplicate of that; it
+  answers a different question ("does this DB's shape match the _domain_
+  schema version the app code expects?") that the migration journal can't
+  answer on its own. `pnpm db:migrate` upserts the single `"singleton"` row
+  after running migrations.
+- **Connection lifecycle — one `createDbClient` function, `max: 1` by
+  default for CLI/test usage.** A short-lived per-command/per-test-file
+  connection (documented in `src/client.ts`). For a future Next.js runtime
+  (Session 10+, not built this session), the same function can be called
+  once at module scope with a larger `max` and held as a singleton for the
+  life of a long-running Node.js process — postgres.js pools internally, so
+  this is safe. Documented but not built: if Session 10 ever targets an
+  edge/serverless runtime that recycles the process per request (e.g.
+  Vercel Edge Functions), raw TCP Postgres connections won't work there at
+  all, and those routes would need to stay on a Node.js runtime or use an
+  HTTP-based Postgres driver instead — noted as a consideration, not solved
+  here, since there is no Next.js consumer yet.
+- **Timestamp columns use Drizzle's `mode: "date"`, not `mode: "string"`.**
+  Discovered during verification: `mode: "string"` returns postgres.js's
+  own timestamp formatting (`"2026-08-31 20:42:18.079666+01"`, space
+  separator, `+01` offset), which fails `packages/schema`'s
+  `isoTimestamp` Zod schema (`z.string().datetime({ offset: true })`,
+  which requires a `T` separator and `+HH:MM`/`Z` offset). Switched every
+  `timestamp(...)` column to `mode: "date"` (Drizzle returns a JS `Date`)
+  and convert with `.toISOString()` at every repository read boundary
+  (`mapping.ts`, `reads.ts`, `moderation.ts`'s queue listing) — this is the
+  single place `ExperienceSubmission`-shaped output is produced, so the
+  conversion is centralised, not scattered. No new migration was needed:
+  `mode` is a client-side/TypeScript-side setting only and does not change
+  the underlying `timestamp with time zone` column type.
+- **Moderation-decision defaulting for `approved` without explicit
+  redaction.** `approved` with no `--public-text` publishes the original
+  `freeText` verbatim (moderator judged nothing needed redacting).
+  `needs_redaction` requires `--public-text` (enforced by
+  `recordModerationDecision`, which throws `InvalidModerationDecisionError`
+  otherwise). This is the simplest reading consistent with
+  `ExperienceStatus`'s four literal values: `needs_redaction` is the status
+  a moderator picks specifically when `publicText` must differ from
+  `freeText`, so `approved` was not given an implicit "and redact" meaning.
+- **Concurrency handling — a single atomic `UPDATE ... WHERE submission_id
+= ? RETURNING *`, not optimistic locking or a version column.** Two
+  near-simultaneous `recordModerationDecision` calls on the same submission
+  are two independent `UPDATE` statements against the same one-to-one row;
+  Postgres serializes them and the final state is whichever commits last —
+  never a duplicate or partial row, because nothing in this design ever
+  `INSERT`s a second moderation row for one submission. Verified directly
+  with a `Promise.allSettled` test asserting both calls succeed and exactly
+  one `experience_moderation` row exists afterward, with a final `status`
+  that is one of the two attempted decisions.
+- **Seed idempotency — delete-tagged-rows-then-reinsert, keyed by a
+  `seed_key` column.** Every row `db:seed` writes carries a stable
+  `seed_key` (`session9-seed-<key>`, unique-constrained). The seed script
+  deletes every row whose `seed_key` starts with that prefix (cascading to
+  moderation rows), then reinserts the fixed `SEED_SUBMISSIONS` list.
+  Running it twice produces the same 5 rows both times (verified manually
+  against the dev database and by an automated integration test against
+  the test database), and never touches rows without a matching
+  `seed_key` — i.e. real submissions, or another test's data.
+- **Test-database strategy.** `src/testSupport/testDb.ts` requires
+  `TEST_DATABASE_URL` (separate from `DATABASE_URL`; refuses to run if they
+  match, since tests truncate tables) and probes reachability once per test
+  run. If unreachable/unset, every `*.integration.test.ts` file is
+  `describe.skipIf`-skipped with a console warning rather than failed, so
+  `pnpm test` stays green for a contributor without Postgres configured.
+  Availability is resolved via a top-level `await` in each integration test
+  file (not inside `beforeAll`), because Vitest evaluates `describe` bodies
+  synchronously at collection time, before any hook runs — a
+  `describe.skipIf` condition that depended on a value only set inside
+  `beforeAll` would always see the pre-hook (default `false`) value. Real
+  Postgres, not mocked: mocking Drizzle/postgres.js would defeat the point
+  of "production-shaped persistence layer" tests. **CI implication (known
+  limitation):** this repo's `.github/workflows/` does not yet provision a
+  Postgres service; until it does, `pnpm test` in CI will skip this
+  package's integration tests rather than run them for real. Documented as
+  a follow-up, not fixed this session (out of this session's stated scope).
+- **Sandboxed-environment substitution for Docker.** This session's
+  execution sandbox has no `docker`/`docker compose` binary available.
+  `docker-compose.yml` (pinned `postgres:16.4`, healthcheck, named volume)
+  is written as the real, intended `pnpm db:up`/`db:down` mechanism and was
+  not modified to work around the sandbox. For this session's own
+  verification only, a local Homebrew PostgreSQL 16.14 instance
+  (`pg_ctl`/`initdb`, two databases: `panchnama` and `panchnama_test`,
+  port 5544) stood in for it — every `db:*`/`experiences:*` command ran
+  unmodified against that instance via `DATABASE_URL`/`TEST_DATABASE_URL`
+  in `.env.local`. `.env.local` was not committed (git-ignored per the
+  existing `.gitignore` `.env*.local` pattern).
+
+### Tests run and results
+
+Real integration tests against real PostgreSQL 16.14
+(`TEST_DATABASE_URL=postgres://panchnama@localhost:5544/panchnama_test`,
+migrated), plus pure-unit tests, all via `pnpm --filter @panchnama/database
+test` (`vitest run`):
+
+```
+ ✓ src/repository/repository.integration.test.ts (8 tests) 103ms
+ ✓ src/repository/retention.integration.test.ts (1 test) 27ms
+ ✓ src/repository/constraints.integration.test.ts (9 tests) 71ms
+ ✓ src/repository/mapping.test.ts (3 tests) 3ms
+ ✓ src/repository/seed.integration.test.ts (1 test) 33ms
+ ✓ src/repository/logging.test.ts (6 tests) 1ms
+ ✓ src/repository/migration.integration.test.ts (1 test) 23ms
+ ✓ src/index.test.ts (1 test) 1ms
+
+ Test Files  8 passed (8)
+      Tests  30 passed (30)
+```
+
+Mapped to the session's required test list:
+
+- **Migration from an empty database** — `migration.integration.test.ts`
+  drops all four tables plus Drizzle Kit's own `drizzle` schema/journal
+  against the real test database, then re-runs `migrate()` from scratch and
+  asserts every expected table exists afterward.
+- **Constraints** — `constraints.integration.test.ts` inserts raw SQL
+  (bypassing the repository layer's own validation, on purpose) for each
+  CHECK: invalid `outcome`, invalid `device_type`, invalid `source`,
+  `experience_rating` outside 1-5, an unknown theme value in `themes`, an
+  over-length `task_description` (>280) and `free_text` (>1000), and an
+  invalid `experience_moderation.status` — every one is asserted to throw
+  a real Postgres error; a themes array of only known values is asserted
+  to succeed.
+- **Transaction rollback** — `repository.integration.test.ts`'s "leaves no
+  partial state" test opens an outer transaction, calls
+  `createPendingSubmission` (itself transactional) inside it, then throws;
+  asserts the submission count is unchanged afterward.
+- **Repository queries** — covered throughout
+  `repository.integration.test.ts` (create, fetch-by-id, queue listing).
+- **Approval visibility** — asserts `getApprovedExperiences` returns
+  exactly the one row that is both `approved` and `consentToPublish: true`,
+  out of four submissions in states approved+consented,
+  approved+not-consented, pending, and rejected.
+- **Redaction preservation** — asserts `publicText` (not the original
+  `freeText`) is what `getApprovedExperiences` returns once approved, that
+  a `needs_redaction` submission does not yet appear in approved reads,
+  and that the original `freeText` (containing a phone-number-shaped
+  string) remains intact and unredacted in `getSubmissionById`'s output
+  regardless of the moderation decision.
+- **Aggregate exclusion** — asserts a portal with one approved, one
+  pending, and one rejected submission produces
+  `approvedExperienceCount: 1` and correct `outcomeCounts`, validated
+  against `portalExperienceSummarySchema.parse()`.
+- **Retention** — `retention.integration.test.ts` seeds an old-rejected
+  (back-dated `moderatedAt`, 100 days), a recent-rejected, an approved, and
+  a pending submission, plus one expired and one fresh abuse-key row;
+  asserts `runRetention` deletes exactly the old-rejected submission and
+  the expired abuse-key row, and that all three other submissions survive.
+- **Concurrent decision handling** — `Promise.allSettled` on two
+  simultaneous `recordModerationDecision` calls (approve vs. reject) on the
+  same submission; asserts both settle successfully, the final status is
+  one of the two attempted decisions, and exactly one
+  `experience_moderation` row exists for that submission afterward.
+- **No raw IP/free text in logs** — `logging.test.ts` asserts every typed
+  error class in `src/errors.ts` only ever interpolates ids (never
+  caller-supplied free text) into its `.message`; the rest of the "never
+  log free text" property (that `src/repository/*.ts` and
+  `src/scripts/*.ts` never pass `freeText`/`publicText` to `console.*`) is
+  a code-review-verified property, documented in that test file's doc
+  comment, not a live-log-capture test — a live-capture test was judged
+  impractical to make meaningfully stronger than direct code review here,
+  since the actual risk surface is a handful of small, fully-reviewed
+  files.
+- **Seed idempotency** — `seed.integration.test.ts` runs the seed logic
+  twice against the test database and asserts the row count stays at
+  `SEED_SUBMISSIONS.length` both times (also demonstrated manually against
+  the dev database — see below).
+
+Full repo quality gates, run from the repo root after `pnpm format`:
+
+```
+$ pnpm lint        # eslint . — no output, exit 0
+$ pnpm typecheck    # tsc --noEmit across 6 packages — no output, exit 0
+$ pnpm test         # vitest run across 6 packages — 438 tests total, all passed
+                     #   (apps/web 2, schema 64, ui 1, audit-core 136,
+                     #    database 30, audit-cli 205)
+$ pnpm build        # next build + tsc build across 6 packages — succeeded
+```
+
+### Manual end-to-end demonstration (exit-criteria walkthrough)
+
+All commands run for real, unmodified, against the local PostgreSQL
+instance described above (`DATABASE_URL`/`TEST_DATABASE_URL` in
+`.env.local`, not committed).
+
+```
+$ pnpm db:migrate
+Migrations applied successfully.
+
+$ pnpm db:check
+Database is reachable.
+Schema metadata: experienceSubmission v1.0.0, portalExperienceSummary v1.0.0, last migrated at ...
+db:check PASSED
+
+$ pnpm db:seed
+Removed 0 existing seed row(s).
+Seeded 5 deterministic submission(s).
+
+$ pnpm db:seed        # run again — idempotency check
+Removed 5 existing seed row(s).
+Seeded 5 deterministic submission(s).
+
+$ pnpm experiences:queue
+1 submission(s) awaiting moderation:
+id: <uuid> | portal: portal-agri-assam | created: ... | task: general_information (completed)
+  | themes: navigation | consent: true | preview: Found the contact page after a couple of clicks.
+
+$ pnpm experiences:moderate --id <uuid> --decision approve
+Recorded decision "approved" for submission <uuid>.
+
+$ pnpm experiences:queue
+Moderation queue is empty.
+
+$ pnpm experiences:aggregate
+{ "schemaVersion": "1.0.0", "portalId": "portal-agri-assam", "approvedExperienceCount": 1, ... }
+{ "schemaVersion": "1.0.0", "portalId": "portal-agri-farmers-welfare", "approvedExperienceCount": 2, ... }
+
+$ pnpm experiences:retention
+Retention complete: 0 rejected submission(s) older than 90 day(s) deleted; 0 expired abuse-key row(s) deleted.
+```
+
+Stop/restart without deleting data (`pg_ctl stop`/`start`, standing in for
+`docker compose down`/`up` per the sandbox note above):
+
+```
+$ pg_ctl stop -m fast   # equivalent of `pnpm db:down`
+server stopped
+$ pg_ctl start          # equivalent of `pnpm db:up`
+server started
+$ psql ... -c "SELECT count(*) FROM experience_submissions;"
+ count
+-------
+     5
+```
+
+All 5 seeded rows, including the just-recorded `approved` decision,
+survived the stop/restart cycle — confirming `pnpm db:down` (a plain
+`docker compose down`, no `-v`) is non-destructive.
+
+### Known limitations (deferred, explicit)
+
+- No hard database foreign key from `experience_submissions.portal_id` to
+  a portals table — application-level validation only (see "Decisions"
+  above for the full tradeoff). A caller that skips or misimplements
+  `isKnownPortalId` could write an orphaned `portal_id`; there is no DB-
+  level backstop this session.
+- No decision-history table for moderation — a re-decision overwrites the
+  previous one in place. If a future session needs an audit trail of every
+  moderation decision (not just the current one), that is a new,
+  additive table, not a change to this session's schema.
+- This repo's `.github/workflows/` does not provision a Postgres service
+  for CI yet, so `packages/database`'s integration tests will skip (not
+  run) in CI until that's added — a documented gap, not silently hidden.
+- `experiences:aggregate` is print-only this session (no persistence
+  target exists yet — Session 10/15's job) — proves the repository
+  aggregate function is correct without inventing an unread destination.
+- `docker compose` itself was not exercised in this session's sandbox (no
+  `docker` binary available); `docker-compose.yml` was validated by
+  inspection and by matching its env vars to `.env.example`, not by an
+  actual `docker compose up`. A developer with Docker installed should
+  confirm `pnpm db:up` works before relying on it, though the underlying
+  Postgres behavior (migrate/seed/moderate/retention) is proven for real
+  against the same PostgreSQL major version (16) the compose file pins.
+- `getPortalExperienceSummary`'s `earliestExperienceDate`/
+  `latestExperienceDate` fall back to a submission's `createdAt` timestamp
+  (not just a date) when `occurredOn` is absent — matches the Zod schema's
+  plain `z.string().optional()` (no format constraint), but is a slightly
+  different granularity than the `occurredOn` convention's "month or date,
+  never more precision" — a documented judgment call, not a violation
+  (the schema does not constrain this field's format).
+
+### Next session prerequisites (Session 10 — Application runtime, anonymous experience API, and abuse controls)
+
+- This session's repository layer (`packages/database/src/repository/*`)
+  is the foundation Session 10 builds `POST /api/experiences` and the
+  approved-read API on top of. In particular: `createPendingSubmission`
+  needs a real `isKnownPortalId` implementation backed by the published
+  portal set (currently only a fixture-backed one exists, in
+  `src/fixtures/portals.ts`); `recordAbuseKeyEvent`/`countEventsInWindow`
+  are storage primitives only — Session 10 must implement the actual
+  rate-limiting decision logic (IP→HMAC via `EXPERIENCE_ABUSE_KEY_SECRET`,
+  the 5-per-24h/2-per-portal-per-24h thresholds) on top of them.
+- `EXPERIENCE_ABUSE_KEY_SECRET` is declared in `.env.example` but unused by
+  any code — Session 10 is the first session that reads it.
+- `createDbClient`'s connection-lifecycle design (documented in
+  `src/client.ts`) is intended to work for a long-running Next.js Node.js
+  runtime as a module-scope singleton; if Session 10 targets an
+  edge/serverless runtime instead, it will need a different (HTTP-based)
+  Postgres driver or must keep these routes on the Node.js runtime — this
+  session did not resolve that because there is no Next.js consumer yet.
+- No CI Postgres service exists yet; Session 10 (or an infra follow-up)
+  should decide whether/how CI runs `packages/database`'s (and any new
+  API-level) integration tests against a real database.
+- Real Assam portal data still does not exist anywhere in this repository
+  (Sessions 0-8's `data/{raw,review,published}` remain empty except
+  `.gitkeep` files) — Session 10's experience API will still only be
+  testable against fixture/test portal ids until Session 17+ produces real
+  inventory/crawl/review data.
