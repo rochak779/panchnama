@@ -1,27 +1,42 @@
 import { createHash } from "node:crypto";
-import {
-  decideScope,
-  extractRawHrefs,
-  normalizeUrl,
-  type UrlNormalizationOptions,
-} from "@panchnama/audit-core";
+import { decideScope, normalizeUrl, type UrlNormalizationOptions } from "@panchnama/audit-core";
 import { SCHEMA_VERSIONS, type PageObservation, type Portal } from "@panchnama/schema";
 import type { HostScheduler } from "./host-scheduler.js";
 import { fetchWithRetry, type HttpFetcherOptions, type RetryOptions } from "./http-fetcher.js";
+import { extractHtml } from "./html-extract.js";
 import type { RobotsCache } from "./robots-fetcher.js";
 
 /**
  * Crawl frontier — implementation.md section 14 Session 4 ("Crawl frontier
  * with maximum pages and depth") and section 6.1 boundaries.
  *
- * Session 4/5 link-discovery boundary (documented per the task brief): this
- * module uses `@panchnama/audit-core`'s `extractRawHrefs`, a minimal
- * regex-based `<a href>` scan, to discover outbound URLs to walk the
- * frontier. It does NOT extract title/canonical/language/anchor
- * text/link-context — that is Session 5's full HTML extraction, which will
- * replace this minimal scan. This module's only use of a fetched page's
- * body is "what URLs does it link to," nothing else.
+ * Session 4/5 link-discovery boundary, resolved (per the task brief's
+ * judgment call): as of Session 5, the frontier now uses `html-extract.ts`'s
+ * full Cheerio-based extraction — not `@panchnama/audit-core`'s minimal
+ * `extractRawHrefs` regex scan — for both queue expansion AND populating
+ * `PageObservation.title`/`.canonical`/`.language`. Correctness (base-tag
+ * resolution, entity decoding) was judged more valuable than the earlier
+ * speed shortcut, and doing extraction once per fetched page (rather than
+ * once for frontier-walking and again for link-checking) avoids a second,
+ * silently-diverging notion of "what a link on this page is." `link-scan.ts`
+ * is left in `audit-core`, unused by this module, as a documented
+ * superseded building block — see its own doc comment.
+ *
+ * Every extracted link (in scope or not, followed or not) is also recorded
+ * as a `LinkOccurrence` for the link-checking pass (`link-check.ts`) to
+ * consume — the frontier's own queueing only follows same-portal-scope
+ * links within `maxDepth`, but link-checking must see every discovered
+ * destination, internal or external.
  */
+
+export interface LinkOccurrence {
+  portalId: string;
+  sourcePageUrl: string;
+  rawHref: string;
+  resolvedUrl?: string;
+  anchorText?: string;
+  context?: string;
+}
 
 export interface FrontierPolicy {
   boundaries: {
@@ -62,6 +77,10 @@ export interface CrawlPortalResult {
   plannedUrls: string[];
   status: "succeeded" | "partial" | "failed";
   pagesFetched: number;
+  /** Every `<a href>` occurrence found on every successfully-fetched HTML
+   * page this portal crawl visited — consumed by `checkPortalLinks`. Empty
+   * in dry-run mode (no pages are actually fetched/parsed). */
+  linkOccurrences: LinkOccurrence[];
 }
 
 export interface FrontierDeps {
@@ -125,6 +144,7 @@ export async function crawlPortal(
   const pageObservations: PageObservation[] = [];
   const skipLog: SkipLogEntry[] = [];
   const plannedUrls: string[] = [];
+  const linkOccurrences: LinkOccurrence[] = [];
   let sequence = 0;
   let pagesFetched = 0;
   let entryOk = false;
@@ -212,6 +232,15 @@ export async function crawlPortal(
 
     sequence += 1;
     const digest = bodyDigest(result.bodyText);
+
+    // Full Cheerio-based extraction (Session 5) replaces the Session 4
+    // minimal regex scan for both this observation's title/canonical/
+    // language AND queue expansion — see this file's doc comment.
+    const extracted =
+      result.ok && isHtmlContentType(result.contentType)
+        ? extractHtml(result.bodyText ?? "", result.finalUrl)
+        : undefined;
+
     const observation: PageObservation = {
       id: `${runId}-${portal.id}-p${sequence}`,
       schemaVersion: SCHEMA_VERSIONS.pageObservation,
@@ -227,6 +256,9 @@ export async function crawlPortal(
       redirectChain: result.redirectChain,
       ...(result.contentType !== undefined ? { contentType: result.contentType } : {}),
       durationMs: result.durationMs,
+      ...(extracted?.title !== undefined ? { title: extracted.title } : {}),
+      ...(extracted?.canonical !== undefined ? { canonical: extracted.canonical } : {}),
+      ...(extracted?.language !== undefined ? { language: extracted.language } : {}),
       ...(digest !== undefined ? { bodyDigest: digest } : {}),
       ...(result.errorCode !== undefined ? { errorCode: result.errorCode } : {}),
       ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
@@ -243,20 +275,35 @@ export async function crawlPortal(
       sawError = true;
     }
 
-    if (
-      result.ok &&
-      isHtmlContentType(result.contentType) &&
-      entry.depth < policy.boundaries.maxDepth
-    ) {
-      const hrefs = extractRawHrefs(result.bodyText ?? "");
-      for (const href of hrefs) {
-        const childNorm = normalizeUrl(href, policy.urlNormalization, result.finalUrl);
-        if (childNorm.ok && !visited.has(childNorm.normalizedUrl)) {
-          queue.push({
-            url: childNorm.normalizedUrl,
-            depth: entry.depth + 1,
-            discoveredFrom: norm.normalizedUrl,
-          });
+    if (extracted !== undefined) {
+      for (const link of extracted.links) {
+        linkOccurrences.push({
+          portalId: portal.id,
+          sourcePageUrl: norm.normalizedUrl,
+          rawHref: link.rawHref,
+          ...(link.resolvedUrl !== undefined ? { resolvedUrl: link.resolvedUrl } : {}),
+          ...(link.anchorText !== undefined ? { anchorText: link.anchorText } : {}),
+          ...(link.context !== undefined ? { context: link.context } : {}),
+        });
+      }
+
+      if (entry.depth < policy.boundaries.maxDepth) {
+        for (const link of extracted.links) {
+          if (link.resolvedUrl === undefined) {
+            continue;
+          }
+          const childNorm = normalizeUrl(
+            link.resolvedUrl,
+            policy.urlNormalization,
+            result.finalUrl,
+          );
+          if (childNorm.ok && !visited.has(childNorm.normalizedUrl)) {
+            queue.push({
+              url: childNorm.normalizedUrl,
+              depth: entry.depth + 1,
+              discoveredFrom: norm.normalizedUrl,
+            });
+          }
         }
       }
     }
@@ -275,5 +322,6 @@ export async function crawlPortal(
     plannedUrls,
     status,
     pagesFetched,
+    linkOccurrences,
   };
 }

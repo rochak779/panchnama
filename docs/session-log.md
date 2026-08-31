@@ -1350,3 +1350,214 @@ end to end).
   fetcher behavior. `PageObservation.fetchMode` is hard-coded to `"http"`
   everywhere in this session, exactly as instructed (leaving the field/hook
   for Session 6 to populate `"browser"`).
+
+---
+
+## Session 5 — HTML extraction and link checking
+
+**Date:** 2026-08-31
+**Goal:** Turn fetched pages into normalized page and link observations
+(implementation.md section 14, "Session 5").
+
+### Files changed
+
+- `packages/audit-cli/src/crawl/html-extract.ts` (new) — Cheerio-based
+  full HTML extraction: title, canonical, language, base-tag-aware link
+  resolution, anchor text, bounded link context.
+- `packages/audit-cli/src/crawl/html-extract.test.ts` (new).
+- `packages/audit-cli/src/crawl/link-check.ts` (new) — destination link
+  checking: exclusion classification, network-layer dedup, HEAD/GET
+  fallback, retry reuse.
+- `packages/audit-cli/src/crawl/link-check.test.ts` (new).
+- `packages/audit-cli/src/crawl/frontier.ts` — replaced `extractRawHrefs`
+  with `html-extract.ts`'s extractor for both queue expansion and
+  `PageObservation.title`/`.canonical`/`.language` population; added
+  `LinkOccurrence` collection.
+- `packages/audit-cli/src/crawl/frontier.test.ts` — unchanged behavior,
+  still passes (extraction change is additive).
+- `packages/audit-cli/src/crawl/run.ts` — wires `checkPortalLinks` into
+  each portal's crawl (non-dry-run only), validates and writes
+  `LinkObservation`s; fixed a pre-existing `AuditRun.status` derivation
+  bug (see Decisions).
+- `packages/audit-cli/src/crawl/write.ts` — writes
+  `link-observations.jsonl` alongside `page-observations.jsonl`.
+- `packages/audit-cli/src/commands/crawl.test.ts` — added an end-to-end
+  test covering extraction + broken internal/external links + excluded
+  mailto link, all schema-validated.
+- `packages/audit-core/src/link-scan.ts` — untouched; no longer referenced
+  by the frontier (see Decisions).
+
+### Decisions
+
+- **`link-scan.ts`'s role**: left in `audit-core`, unmodified, but no
+  longer called anywhere. The frontier now uses `html-extract.ts`'s
+  Cheerio-based extractor for both queue expansion and title/canonical/
+  language population — judged that correctness (base-tag resolution,
+  entity decoding, real DOM semantics) outweighs the earlier regex
+  shortcut, and that doing extraction once per fetched page (rather than
+  once for frontier-walking and again for link-checking) avoids two
+  silently-diverging notions of "what a link on this page is." No
+  audit-core code was deleted since it's still a documented, dependency-
+  free building block per the task brief's instruction not to delete
+  things without cause.
+- **Dedup layer**: deduplication happens at the network-request layer, not
+  the record layer. Every discovered link occurrence (one per source page
+  + anchor) becomes its own `LinkObservation` — full traceability, matching
+  section 5.6's one-`sourcePageUrl`-per-record schema literally — but the
+  actual HEAD/GET check for a given `normalizedDestinationUrl` runs exactly
+  once per portal crawl, and its result (`checkedAt`/`status`/`httpStatus`/
+  `errorCode`/`attempts`) is copied across every occurrence. "Group
+  identical failed destinations" (section 7.2) falls out of this for free:
+  group `link-observations.jsonl` by `normalizedDestinationUrl`.
+- **HEAD/GET fallback heuristic**: HEAD is tried first. It is treated as a
+  *false* failure — worth retrying as GET — only when the server actually
+  responded with HTTP 405 or 501 (the two standard "this endpoint doesn't
+  support HEAD" signals). Any other outcome (success, other 4xx/5xx,
+  network/timeout failure) is trusted as-is with no GET fallback. Verified
+  against a fixture server returning 405-for-HEAD/200-for-GET. Known
+  limitation: a server that fails HEAD in some other, non-405/501 way (or
+  passes HEAD but genuinely fails GET) is not covered by this heuristic.
+- **Output file naming/location**: `link-observations.jsonl` written next
+  to `page-observations.jsonl` in `data/raw/crawl/<runId>/`, same
+  one-JSON-object-per-line convention, same atomic-write path.
+- **CLI wiring**: no new flag. Link checking is always-on as part of
+  `crawl` whenever the run is not `--dry-run` and a portal's frontier
+  discovered at least one link — matching how page-fetching itself has no
+  opt-out flag. `--dry-run` still makes zero network requests of any kind
+  (frontier planning only; `checkPortalLinks` is never invoked).
+- **Exclusion classification reuse**: link-check exclusion (mail/tel/js/
+  data schemes, denylisted paths, excluded route categories, disabled
+  domains) reuses `@panchnama/audit-core`'s `decideScope` by passing
+  `portalHostnames: [hostname]` — a deliberate trick that makes the
+  hostname-scope half of `decideScope` always pass (link checking must
+  check both internal and external destinations, unlike frontier
+  queueing) while still reusing its exclusion-pattern logic. Excluded
+  links get `status: "not_applicable"`, `errorCode: "SCOPE_EXCLUDED"`
+  (reusing the same stable code the frontier already uses for the
+  analogous scope decision), `attempts: 0`, and never touch the network.
+- **"Context" definition**: the trimmed, whitespace-collapsed text of the
+  anchor's immediate parent element, truncated to 200 characters. Cheap,
+  bounded, gives a human enough surrounding text to place the link on the
+  page without storing unbounded content. Anchor text is truncated to the
+  same 200-character bound.
+- **Bug fix (pre-existing, Session 4)**: `run.ts`'s `AuditRun.status`
+  derivation compared `failed === portals.length` where the schema's own
+  invariant (`packages/schema/src/audit-run.ts`) actually requires
+  `succeeded === 0` for a "failed" run-level status. This mismatch was
+  latent because no prior test exercised a single-portal run whose only
+  portal came back portal-level `"partial"` (possible since Session 4, but
+  first actually triggered by this session's link-page fixture, whose
+  frontier itself discovers a broken internal page). Fixed to derive
+  status the same way the schema checks it: `completed` iff all succeeded,
+  `failed` iff none succeeded, `partial` otherwise.
+
+### Tests run and results
+
+```
+pnpm lint        — pass (0 errors)
+pnpm typecheck   — pass (6/6 packages)
+pnpm test        — pass (279 tests across all packages;
+                    audit-cli: 24 files / 156 tests, incl. 9 new
+                    html-extract tests, 7 new link-check tests, and 1 new
+                    end-to-end crawl.test.ts case)
+pnpm build       — pass (6/6 packages + Next.js app)
+```
+
+### Manual verification (local fixture portal, no live-internet targets)
+
+Ran `runCrawl()` directly (test-only `ssrf.allowLoopbackForTests` override,
+same pattern as Session 4's manual verification — never the real CLI path)
+against a local fixture HTTP server with a home page (title/canonical/
+language present), a working internal link, a broken internal link (404),
+an excluded `mailto:` link, and a broken external link (connection
+refused):
+
+```
+crawl run: demo-harness-r1
+inventory: demo-inventory-r1
+portals: 1
+  [partial] demo-fixture-portal — 3 page(s)
+status: failed
+portals succeeded/partial/failed: 0/1/0
+page observations: 3
+link observations: 4
+output: /tmp/panchnama-demo5/work/crawl/demo-harness-r1
+```
+
+`page-observations.jsonl` (home page, extraction fields present):
+
+```json
+{"id":"demo-harness-r1-demo-fixture-portal-p1", ..., "title":"Assam Test Portal — Home","canonical":"http://127.0.0.1:54162/","language":"en", ...}
+```
+
+`link-observations.jsonl` (all four discovered links, correctly checked
+and classified):
+
+```json
+{"...-l1", "destinationUrl":"http://127.0.0.1:54162/scheme-details", "relationship":"internal", "status":"pass","httpStatus":200,"attempts":1}
+{"...-l2", "destinationUrl":"http://127.0.0.1:54162/broken-pdf-link", "relationship":"internal", "status":"fail","httpStatus":404,"errorCode":"HTTP_CLIENT_ERROR","attempts":1}
+{"...-l3", "destinationUrl":"mailto:help@assam.gov.example", "relationship":"external", "status":"not_applicable","errorCode":"SCOPE_EXCLUDED","attempts":0}
+{"...-l4", "destinationUrl":"http://localhost:59999/", "relationship":"external", "status":"fail","errorCode":"CONNECT_TIMEOUT","attempts":2}
+```
+
+All records validated against `pageObservationSchema`/`linkObservationSchema`
+by the command itself before writing.
+
+### Known limitations (deferred/best-effort, explicit)
+
+- **HEAD/GET fallback heuristic** only treats HTTP 405/501 as a "false"
+  HEAD failure — a server that fails HEAD some other way, or that passes
+  HEAD but fails GET, is not covered.
+- **Non-HTML link destinations are checked but never parsed** — this is
+  correct per section 6.2 ("directly linked documents may be recorded"
+  but not recursively crawled), but means a GET check on a large non-HTML
+  file still reads its full (bounded) body even though the content is
+  discarded; no `HEAD`-only short-circuit for known non-HTML extensions
+  was built this session.
+- **Link checking is per-portal, not globally deduplicated across
+  portals** — two different portals linking to the same external URL will
+  each trigger their own check. This matches the section 7.2 dedup
+  requirement read at portal-crawl scope and keeps each portal's crawl
+  self-contained/isolatable (matching Session 4's per-portal try/catch
+  isolation); cross-portal dedup was judged out of scope and is a natural
+  Session 7/8 rollup concern instead (aggregating already-produced
+  `LinkObservation`s).
+- **`CheckStatus` values `"warning"` and `"not_assessable"` are never
+  emitted by link checking this session** — only `"pass"`, `"fail"`, and
+  `"not_applicable"` are used; assigning severity/warning-vs-fail nuance
+  is Session 7's job.
+- **No evidence-artifact capture** — same as Session 4; `artifactRefs`
+  stays `[]` on every `PageObservation`, and link checks produce no
+  `EvidenceArtifact` records.
+- **Internal links discovered by the frontier may be fetched twice** — once
+  as a page (frontier walk, if in scope/within depth) and again as a link
+  check destination (always, if not excluded). This is a deliberate
+  simplification (link-checking is a fully separate, general-purpose pass
+  over every discovered link, not just frontier-followed ones) rather than
+  an attempt to reuse frontier fetch results for link-check output, and is
+  bounded by the same per-host politeness/concurrency scheduler either way.
+- **Bug fix note**: the `AuditRun.status` derivation fix (see Decisions)
+  changes prior behavior for the specific case of a single-portal run whose
+  only portal comes back "partial" — it now reports run-level `"failed"`
+  instead of the previously schema-invalid `"partial"`, matching the
+  schema's own literal definition. No existing test asserted the old
+  (buggy) behavior, so nothing outside this session's new tests depended
+  on it.
+
+### Next session prerequisites (Session 6 — Browser fallback)
+
+- `PageObservation.fetchMode` is still hard-coded to `"http"` everywhere;
+  Session 6 introduces `"browser"` for allowlisted JS-rendered portals
+  (`config/crawl-policy.yaml`'s `jsRendering` block, read but unused since
+  Session 2).
+- `html-extract.ts`'s `extractHtml(html, pageUrl)` is a pure function over
+  an already-fetched HTML string — Session 6's Playwright-rendered page
+  content can be run through the exact same extractor once rendered HTML
+  is available, no new extraction logic needed.
+- `link-check.ts`'s `checkPortalLinks` takes a portal-scoped
+  `LinkOccurrence[]` and is fetch-mechanism-agnostic — links discovered
+  from browser-rendered pages (Session 6) can be fed into the same
+  function unchanged.
+- Browser-rendered pages will discover links current server-rendered HTML
+  cannot see at all (client-side-injected navigation) — expect materially
+  higher link/page counts on allowlisted portals once Session 6 lands.

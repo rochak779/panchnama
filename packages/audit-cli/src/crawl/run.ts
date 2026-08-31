@@ -1,6 +1,11 @@
 import { join } from "node:path";
-import type { AuditRun, PageObservation, Portal } from "@panchnama/schema";
-import { portalSchema, pageObservationSchema, auditRunSchema } from "@panchnama/schema";
+import type { AuditRun, LinkObservation, PageObservation, Portal } from "@panchnama/schema";
+import {
+  portalSchema,
+  pageObservationSchema,
+  linkObservationSchema,
+  auditRunSchema,
+} from "@panchnama/schema";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
 import {
@@ -14,6 +19,7 @@ import {
 } from "../config/index.js";
 import { readLatestRunId } from "../inventory/write.js";
 import { crawlPortal, type SkipLogEntry } from "./frontier.js";
+import { checkPortalLinks } from "./link-check.js";
 import { HostScheduler } from "./host-scheduler.js";
 import { RobotsCache } from "./robots-fetcher.js";
 import type { HttpFetcherOptions } from "./http-fetcher.js";
@@ -187,14 +193,14 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
   }
 
   const allPageObservations: PageObservation[] = [];
+  const allLinkObservations: LinkObservation[] = [];
   const allSkipLog: SkipLogEntry[] = [];
   let succeeded = 0;
   let failed = 0;
   let partial = 0;
   const limitations: string[] = [
-    "Page discovery this session uses a minimal <a href> scan (Session 4/5 boundary); full title/canonical/language/link-context extraction is Session 5's job.",
-    "Destination link-checking (verifying discovered links resolve) is Session 5's job — this run only records the pages it visited.",
-    "Browser/JavaScript rendering fallback is not implemented (Session 6); client-rendered pages with no server-rendered links will show reduced coverage.",
+    "Browser/JavaScript rendering fallback is not implemented (Session 6); client-rendered pages with no server-rendered links will show reduced coverage, both for extraction and for link discovery.",
+    "Link checking only ever issues HEAD (falling back to GET on a 405/501) or GET requests, and only against links actually discovered in server-rendered HTML — it does not simulate form submission or JS-triggered navigation.",
   ];
 
   for (const portal of portals) {
@@ -226,6 +232,38 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
 
       allPageObservations.push(...result.pageObservations);
       allSkipLog.push(...result.skipLog);
+
+      if (!params.dryRun && result.linkOccurrences.length > 0) {
+        const linkObservations = await checkPortalLinks(
+          portal,
+          runId,
+          result.linkOccurrences,
+          {
+            urlNormalization: crawlPolicy.urlNormalization,
+            exclusions: crawlPolicy.exclusions,
+            safeOperation: { disabledDomains: crawlPolicy.safeOperation.disabledDomains },
+            boundaries: {
+              requestTimeoutMs: crawlPolicy.boundaries.requestTimeoutMs,
+              maxResponseBodyBytes: crawlPolicy.boundaries.maxResponseBodyBytes,
+              maxRedirects: crawlPolicy.boundaries.maxRedirects,
+              maxAttemptsAvailabilityCritical:
+                crawlPolicy.boundaries.maxAttemptsAvailabilityCritical,
+              allowedSchemes: crawlPolicy.boundaries.allowedSchemes,
+            },
+            robotsAndIdentification: { userAgent: crawlPolicy.robotsAndIdentification.userAgent },
+          },
+          {
+            hostScheduler,
+            ...(params.ssrf !== undefined ? { ssrf: params.ssrf } : {}),
+            now,
+            ...(params.sleepFn !== undefined
+              ? { retry: { sleepFn: params.sleepFn, randomFn: () => 0 } }
+              : {}),
+          },
+        );
+        allLinkObservations.push(...linkObservations);
+      }
+
       if (result.status === "succeeded") {
         succeeded += 1;
       } else if (result.status === "partial") {
@@ -250,11 +288,20 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
   }
 
   const completedAt = now();
+  // Must mirror `auditRunSchema`'s own invariant exactly (packages/schema/src/
+  // audit-run.ts): "completed" requires every portal succeeded;
+  // "failed" requires portalsSucceeded === 0 (a portal-level "partial"
+  // outcome, with zero full successes, still rolls up to run-level
+  // "failed" per the schema's literal definition — a bug fixed this
+  // session: the previous derivation compared `failed === portals.length`
+  // instead of `succeeded === 0`, which produced a schema-invalid
+  // "partial" run status whenever a single-portal run's only portal came
+  // back "partial" itself).
   const status: AuditRun["status"] =
-    failed === portals.length && portals.length > 0
-      ? "failed"
-      : succeeded === portals.length
-        ? "completed"
+    succeeded === portals.length && portals.length > 0
+      ? "completed"
+      : succeeded === 0
+        ? "failed"
         : "partial";
 
   const codeRevision = getCodeRevision(params.repoRoot);
@@ -295,6 +342,17 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
       };
     }
   }
+  for (const obs of allLinkObservations) {
+    const check = linkObservationSchema.safeParse(obs);
+    if (!check.success) {
+      return {
+        ok: false,
+        lines: [
+          `crawl FAILED — generated LinkObservation "${obs.id}" failed schema validation: ${check.error.message}`,
+        ],
+      };
+    }
+  }
 
   let outputDir: string;
   try {
@@ -303,6 +361,7 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
       runId,
       manifest,
       pageObservations: allPageObservations,
+      linkObservations: allLinkObservations,
       skipLog: allSkipLog,
     }));
   } catch (error) {
@@ -313,6 +372,7 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
     `status: ${status}`,
     `portals succeeded/partial/failed: ${succeeded}/${partial}/${failed}`,
     `page observations: ${allPageObservations.length}`,
+    `link observations: ${allLinkObservations.length}`,
     `output: ${outputDir}`,
   );
 

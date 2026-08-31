@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { auditRunSchema, pageObservationSchema, type Portal } from "@panchnama/schema";
+import {
+  auditRunSchema,
+  pageObservationSchema,
+  linkObservationSchema,
+  type Portal,
+} from "@panchnama/schema";
 import { computeConfigDigest } from "../config/digest.js";
 import { parse as parseYaml } from "yaml";
 import { runCrawlCommand } from "./crawl.js";
@@ -335,6 +340,121 @@ describe("runCrawlCommand", () => {
       expect(manifest.crawlPolicyDigest).toBe(computeConfigDigest(crawlPolicyParsed));
     } finally {
       await server.close();
+    }
+  });
+
+  it("end-to-end: extracts pages and checks links, producing schema-valid PageObservations and LinkObservations with full traceability", async () => {
+    workDir = mkdtempSync(join(tmpdir(), "panchnama-crawl-"));
+    const configDir = join(workDir, "config");
+    const inventoryOutDir = join(workDir, "inventory");
+    const crawlOutDir = join(workDir, "crawl");
+    writeConfig(configDir);
+
+    const external = await startFixtureServer((_req, res) => {
+      res.writeHead(503);
+      res.end();
+    });
+    // Deliberately addressed as "localhost" rather than "127.0.0.1" (the
+    // fixture server always binds 127.0.0.1) so relationship classification
+    // (hostname-based) actually sees it as a different, non-portal
+    // hostname — a real external link, not just a different port on the
+    // portal's own registered hostname.
+    const externalUrl = external.url.replace("127.0.0.1", "localhost");
+    const server = await startFixtureServer((req, res) => {
+      if (req.url === "/") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        return res.end(
+          `<html lang="en"><head><title>Home</title><link rel="canonical" href="/"></head>
+           <body>
+             <a href="/broken-internal">Broken internal</a>
+             <a href="${externalUrl}/">Broken external</a>
+             <a href="mailto:info@example.org">Email us</a>
+             <a href="/about">About</a>
+           </body></html>`,
+        );
+      }
+      if (req.url === "/about") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        // Same broken-internal destination linked again from a second page,
+        // with different anchor text — must dedup the check, not the record.
+        return res.end(`<html><body><a href="/broken-internal">Also broken</a></body></html>`);
+      }
+      if (req.url === "/broken-internal") {
+        res.writeHead(404);
+        return res.end();
+      }
+      res.writeHead(200);
+      res.end("ok");
+    });
+    try {
+      writeInventory(inventoryOutDir, "assam-20260101T000000Z", [
+        makePortal("multi-page-portal", `${server.url}/`, ["127.0.0.1"]),
+      ]);
+
+      const result = await runCrawlCommand({
+        configDir,
+        inventoryOutDir,
+        crawlOutDir,
+        repoRoot: workDir,
+        runId: "assam-2026-09-15-r3",
+        ssrf: { allowLoopbackForTests: true },
+        sleepFn: async () => {},
+        now: () => "2026-09-15T00:00:00Z",
+      });
+
+      expect(result.exitCode).toBe(0);
+      const outputDir = join(crawlOutDir, "assam-2026-09-15-r3");
+
+      const pageObs = readFileSync(join(outputDir, "page-observations.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l));
+      for (const obs of pageObs) {
+        expect(pageObservationSchema.safeParse(obs).success).toBe(true);
+      }
+      const home = pageObs.find((o) => o.requestedUrl === `${server.url}/`);
+      expect(home?.title).toBe("Home");
+      expect(home?.canonical).toBe(`${server.url}/`);
+      expect(home?.language).toBe("en");
+
+      const linkObs = readFileSync(join(outputDir, "link-observations.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l));
+      for (const obs of linkObs) {
+        expect(linkObservationSchema.safeParse(obs).success).toBe(true);
+      }
+
+      // Broken internal link: two occurrences (from / and /about), both
+      // recorded, sharing one check result — full traceability.
+      const brokenInternal = linkObs.filter((o) =>
+        o.normalizedDestinationUrl.endsWith("/broken-internal"),
+      );
+      expect(brokenInternal).toHaveLength(2);
+      expect(brokenInternal.every((o) => o.status === "fail")).toBe(true);
+      expect(brokenInternal.every((o) => o.httpStatus === 404)).toBe(true);
+      expect(brokenInternal.every((o) => o.relationship === "internal")).toBe(true);
+      expect(new Set(brokenInternal.map((o) => o.sourcePageUrl))).toEqual(
+        new Set([`${server.url}/`, `${server.url}/about`]),
+      );
+
+      // Broken external link.
+      const brokenExternal = linkObs.find((o) => o.normalizedDestinationUrl === `${externalUrl}/`);
+      expect(brokenExternal?.status).toBe("fail");
+      expect(brokenExternal?.relationship).toBe("external");
+      expect(brokenExternal?.errorCode).toBe("HTTP_SERVER_ERROR");
+
+      // Excluded mailto link — recorded, never fetched.
+      const mailLink = linkObs.find((o) => o.destinationUrl.startsWith("mailto:"));
+      expect(mailLink?.status).toBe("not_applicable");
+      expect(mailLink?.attempts).toBe(0);
+
+      // Working internal link.
+      const aboutLink = linkObs.find((o) => o.normalizedDestinationUrl === `${server.url}/about`);
+      expect(aboutLink?.status).toBe("pass");
+    } finally {
+      await server.close();
+      await external.close();
     }
   });
 });
