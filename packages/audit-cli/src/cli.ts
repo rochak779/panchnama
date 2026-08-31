@@ -6,14 +6,21 @@ import { runInventoryValidate } from "./commands/inventory-validate.js";
 import { runCrawlCommand } from "./commands/crawl.js";
 import { runAnalyzeCommand } from "./commands/analyze.js";
 import { runAnalyzeFixture } from "./analyze/fixture.js";
+import { runReviewValidateCommand } from "./commands/review-validate.js";
+import { runReviewScaffoldCommand } from "./commands/review-scaffold.js";
+import { runPublishCommand } from "./commands/publish.js";
+import { runExportCommand } from "./commands/export.js";
+import { runReportCommand } from "./commands/report.js";
+import { reviewPaths } from "./review/paths.js";
+import type { Severity, SuggestedAction } from "@panchnama/schema";
 
 /**
  * `pnpm audit <command>` dispatcher — implementation.md section 9.1.
  *
  * Session 2 implemented `sources:validate`. Session 3 added
  * `inventory:build` and `inventory:validate`. Session 4 adds `crawl`.
- * Session 7 adds `analyze`. Later sessions add `review:validate`,
- * `publish`, `export`, and `report` here.
+ * Session 7 adds `analyze`. Session 8 adds `review:validate`,
+ * `review:scaffold`, `publish`, `export`, and `report`.
  */
 
 /** Repo-root directory, resolved relative to this module's own location
@@ -50,6 +57,10 @@ function defaultEvidenceOutDir(): string {
   return join(repoRootDir(), "data", "evidence");
 }
 
+function defaultPublishedDir(): string {
+  return join(repoRootDir(), "data", "published");
+}
+
 export interface CliResult {
   exitCode: 0 | 1;
   lines: string[];
@@ -84,9 +95,37 @@ const USAGE_LINES = [
   "  crawl --portal <portal-id> [--max-pages <n>] [--dry-run]",
   "  analyze --run-id <id> [--inventory-run-id <id>] [--force]",
   "  analyze --portal <portal-id> --fixture",
+  "  review:validate --run-id <id>",
+  "  review:scaffold --run-id <id> --finding-id <id> --decision <publish|reject|needs_more_evidence> --reviewer <name> [--rationale <text>] [--overridden-severity <s>] [--overridden-action <a>] [--force]",
+  "  publish --run-id <id> [--force]",
+  "  export --run-id <id> [--format json|csv] [--out-dir <path>]",
+  "  report --run-id <id> [--out-dir <path>]",
   "",
   "common options: --config-dir <path> --seed-dir <path> --out-dir <path>",
 ];
+
+function resolveReviewPaths(rest: string[]): {
+  paths: ReturnType<typeof reviewPaths>;
+  error?: string;
+} {
+  const reviewDirFlag = readFlag(rest, "review-dir");
+  if (reviewDirFlag.error) {
+    return { paths: reviewPaths(repoRootDir()), error: reviewDirFlag.error };
+  }
+  if (reviewDirFlag.value === undefined) {
+    return { paths: reviewPaths(repoRootDir()) };
+  }
+  const root = resolve(reviewDirFlag.value);
+  return {
+    paths: {
+      reviewDir: root,
+      decisionsDir: join(root, "decisions"),
+      evidencePrivacyDir: join(root, "evidence-privacy"),
+      overlapComparisonsDir: join(root, "overlap-comparisons"),
+      publishedDir: defaultPublishedDir(),
+    },
+  };
+}
 
 export async function runCli(argv: string[]): Promise<CliResult> {
   const [command, ...rest] = argv;
@@ -282,6 +321,157 @@ export async function runCli(argv: string[]): Promise<CliResult> {
           ? { inventoryRunId: inventoryRunIdFlag.value }
           : {}),
         overwrite: hasFlag(rest, "force"),
+      });
+    }
+
+    case "review:validate": {
+      const runIdFlag = readFlag(rest, "run-id");
+      if (runIdFlag.error) return { exitCode: 1, lines: [runIdFlag.error] };
+      if (runIdFlag.value === undefined) {
+        return { exitCode: 1, lines: ["review:validate requires --run-id <id>"] };
+      }
+      const crawlOutDirFlag = readFlag(rest, "crawl-out-dir");
+      const inventoryOutDirFlag = readFlag(rest, "inventory-out-dir");
+      const analysisOutDirFlag = readFlag(rest, "analysis-out-dir");
+      for (const flag of [crawlOutDirFlag, inventoryOutDirFlag, analysisOutDirFlag]) {
+        if (flag.error) return { exitCode: 1, lines: [flag.error] };
+      }
+      const { paths: paths1, error: reviewDirError1 } = resolveReviewPaths(rest);
+      if (reviewDirError1) return { exitCode: 1, lines: [reviewDirError1] };
+
+      return runReviewValidateCommand({
+        runId: runIdFlag.value,
+        analysisOutDir:
+          analysisOutDirFlag.value !== undefined
+            ? resolve(analysisOutDirFlag.value)
+            : defaultAnalysisOutDir(),
+        crawlOutDir:
+          crawlOutDirFlag.value !== undefined
+            ? resolve(crawlOutDirFlag.value)
+            : defaultCrawlOutDir(),
+        inventoryOutDir:
+          inventoryOutDirFlag.value !== undefined
+            ? resolve(inventoryOutDirFlag.value)
+            : defaultInventoryOutDir(),
+        reviewPaths: paths1,
+      });
+    }
+
+    case "review:scaffold": {
+      const runIdFlag = readFlag(rest, "run-id");
+      const findingIdFlag = readFlag(rest, "finding-id");
+      const decisionFlag = readFlag(rest, "decision");
+      const reviewerFlag = readFlag(rest, "reviewer");
+      const rationaleFlag = readFlag(rest, "rationale");
+      const overriddenSeverityFlag = readFlag(rest, "overridden-severity");
+      const overriddenActionFlag = readFlag(rest, "overridden-action");
+      for (const flag of [
+        runIdFlag,
+        findingIdFlag,
+        decisionFlag,
+        reviewerFlag,
+        rationaleFlag,
+        overriddenSeverityFlag,
+        overriddenActionFlag,
+      ]) {
+        if (flag.error) return { exitCode: 1, lines: [flag.error] };
+      }
+      if (
+        runIdFlag.value === undefined ||
+        findingIdFlag.value === undefined ||
+        decisionFlag.value === undefined ||
+        reviewerFlag.value === undefined
+      ) {
+        return {
+          exitCode: 1,
+          lines: [
+            "review:scaffold requires --run-id <id> --finding-id <id> --decision <publish|reject|needs_more_evidence> --reviewer <name>",
+          ],
+        };
+      }
+      if (!["publish", "reject", "needs_more_evidence"].includes(decisionFlag.value)) {
+        return {
+          exitCode: 1,
+          lines: ['--decision must be one of "publish", "reject", "needs_more_evidence"'],
+        };
+      }
+      const { paths: paths2, error: reviewDirError2 } = resolveReviewPaths(rest);
+      if (reviewDirError2) return { exitCode: 1, lines: [reviewDirError2] };
+
+      return runReviewScaffoldCommand({
+        runId: runIdFlag.value,
+        findingId: findingIdFlag.value,
+        analysisOutDir: defaultAnalysisOutDir(),
+        crawlOutDir: defaultCrawlOutDir(),
+        inventoryOutDir: defaultInventoryOutDir(),
+        reviewPaths: paths2,
+        decision: decisionFlag.value as "publish" | "reject" | "needs_more_evidence",
+        reviewer: reviewerFlag.value,
+        ...(rationaleFlag.value !== undefined ? { rationale: rationaleFlag.value } : {}),
+        ...(overriddenSeverityFlag.value !== undefined
+          ? { overriddenSeverity: overriddenSeverityFlag.value as Severity }
+          : {}),
+        ...(overriddenActionFlag.value !== undefined
+          ? { overriddenAction: overriddenActionFlag.value as SuggestedAction }
+          : {}),
+        overwrite: hasFlag(rest, "force"),
+      });
+    }
+
+    case "publish": {
+      const runIdFlag = readFlag(rest, "run-id");
+      if (runIdFlag.error) return { exitCode: 1, lines: [runIdFlag.error] };
+      if (runIdFlag.value === undefined) {
+        return { exitCode: 1, lines: ["publish requires --run-id <id>"] };
+      }
+      const { paths: paths3, error: reviewDirError3 } = resolveReviewPaths(rest);
+      if (reviewDirError3) return { exitCode: 1, lines: [reviewDirError3] };
+
+      return runPublishCommand({
+        runId: runIdFlag.value,
+        analysisOutDir: defaultAnalysisOutDir(),
+        crawlOutDir: defaultCrawlOutDir(),
+        inventoryOutDir: defaultInventoryOutDir(),
+        reviewPaths: paths3,
+        overwrite: hasFlag(rest, "force"),
+      });
+    }
+
+    case "export": {
+      const runIdFlag = readFlag(rest, "run-id");
+      const formatFlag = readFlag(rest, "format");
+      const outDirFlag = readFlag(rest, "out-dir");
+      for (const flag of [runIdFlag, formatFlag, outDirFlag]) {
+        if (flag.error) return { exitCode: 1, lines: [flag.error] };
+      }
+      if (runIdFlag.value === undefined) {
+        return { exitCode: 1, lines: ["export requires --run-id <id>"] };
+      }
+      const format = formatFlag.value ?? "json";
+      if (format !== "json" && format !== "csv") {
+        return { exitCode: 1, lines: ['--format must be "json" or "csv"'] };
+      }
+      return runExportCommand({
+        runId: runIdFlag.value,
+        publishedDir: defaultPublishedDir(),
+        format,
+        ...(outDirFlag.value !== undefined ? { outDir: resolve(outDirFlag.value) } : {}),
+      });
+    }
+
+    case "report": {
+      const runIdFlag = readFlag(rest, "run-id");
+      const outDirFlag = readFlag(rest, "out-dir");
+      for (const flag of [runIdFlag, outDirFlag]) {
+        if (flag.error) return { exitCode: 1, lines: [flag.error] };
+      }
+      if (runIdFlag.value === undefined) {
+        return { exitCode: 1, lines: ["report requires --run-id <id>"] };
+      }
+      return runReportCommand({
+        runId: runIdFlag.value,
+        publishedDir: defaultPublishedDir(),
+        ...(outDirFlag.value !== undefined ? { outDir: resolve(outDirFlag.value) } : {}),
       });
     }
 

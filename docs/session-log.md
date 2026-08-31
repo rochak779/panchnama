@@ -2279,3 +2279,333 @@ against the Zod schemas, and every `evidenceRefs` entry resolved.
   designed to be easy to extend: a new rule just needs a `Rule` object
   added to the relevant category array and a matching `config/checks.yaml`
   entry; `selectEnabledRules`/`runPortalRules` require no changes.
+
+## Session 8 — Review and publication pipeline
+
+**Date:** 2026-08-31
+**Goal:** Create the offline human-review gate and stable public datasets
+(implementation.md section 14, "Session 8").
+
+### Files changed
+
+- `packages/audit-core/src/technical-health.ts` — exported
+  `UNAVAILABILITY_RULE_IDS`/`NOT_ASSESSABLE_RULE_IDS` (previously
+  module-private) and added `deriveTechnicalHealthFromReviewedFindings`,
+  the FINAL (post-review) technical-health derivation over `Finding[]`
+  filtered to `reviewStatus === "reviewed"` — reuses the same rule-id sets
+  as Session 7's provisional derivation rather than duplicating them.
+- `packages/audit-cli/src/review/` (new directory — the whole pipeline):
+  - `paths.ts` — `data/review/{decisions,evidence-privacy,
+overlap-comparisons}/` and `data/published/` path conventions.
+  - `decision-store.ts` — read/write/validate one `ReviewDecision` JSON
+    file per finding.
+  - `evidence-privacy-store.ts` — the evidence-privacy-review overlay
+    record and its store (see "Evidence-privacy overlay design" below).
+  - `overlap-store.ts` — read/write/validate `PortalOverlapComparison`
+    files.
+  - `load-run.ts` — loads one analysis run's `Finding[]`/
+    `EvidenceArtifact[]`, the referenced crawl run's `AuditRun`
+    (methodologyVersion/limitations), and the referenced inventory's
+    `Portal[]`/`InventorySource[]`.
+  - `validate.ts` — `reviewValidate`, the full cross-record publication
+    gate (§8.3 combined with §5.14's cross-record invariants).
+  - `crawl-coverage-load.ts` — per-portal crawl-coverage numbers read
+    directly from the referenced crawl run's observation files.
+  - `transform.ts` — `applyReviewOverride`, `transformToPublication` (the
+    publication transformer; see "Override-application interpretation"
+    below).
+  - `publish-write.ts` — atomic `data/published/<runId>/` writer plus the
+    `current` pointer file.
+  - `publish-run.ts` — `runPublish`: calls `reviewValidate` first, refuses
+    to proceed on any issue, then transforms and writes atomically.
+  - `csv.ts` — CSV cell escaping + formula-injection neutralization.
+  - `export.ts` — JSON/CSV export builders from a published run.
+  - `report.ts` — Markdown report builder from a published run.
+  - `scaffold.ts` — `scaffoldReviewDecision`, the `review:scaffold`
+    authoring helper.
+  - `test-helpers.ts` (test-only) — builds a real analyzed run via the
+    real `crawl`/`analyze` commands against local fixture HTTP servers,
+    shared by `review/*.test.ts` and `commands/publish.test.ts`.
+  - `csv.test.ts`, `validate.test.ts` — unit/integration tests (19 tests).
+- `packages/audit-cli/src/commands/review-validate.ts`,
+  `review-scaffold.ts`, `publish.ts`, `export.ts`, `report.ts` (new) — CLI
+  command wrappers.
+- `packages/audit-cli/src/commands/publish.test.ts` (new) — full
+  crawl→analyze→review→publish→export→report end-to-end tests (5 tests).
+- `packages/audit-cli/src/cli.ts` — added `review:validate`,
+  `review:scaffold`, `publish`, `export`, `report` cases to the dispatcher
+  switch (extended, not restructured), plus `resolveReviewPaths`/
+  `defaultPublishedDir` helpers and updated `USAGE_LINES`.
+- `packages/audit-cli/src/index.ts` — re-exports the new review modules.
+
+### Decisions
+
+**Review-decision storage: file-per-finding under `data/review/decisions/
+<findingId>.json`, not runId-keyed.** Unlike `data/raw/{inventory,crawl,
+analysis}/<runId>/`, `data/review/` is keyed by the thing a human decided
+about, not by run. This is a deliberate structural break from the prior
+three pipeline stages: review decisions are hand-authored editorial work
+that must survive an unrelated `crawl`/`analyze` rerun untouched (§5.11's
+own stated rationale), and a `findingId` is only ever produced by the one
+run that materialized it, so nothing is lost by not nesting under
+`<runId>/`. File-per-decision (not one shared JSONL) was chosen so a
+reviewer can open, edit, and `git diff` one finding's decision in
+isolation, and so concurrent manual edits by different reviewers don't
+collide in one file.
+
+**Evidence-privacy-review overlay design.** Raw `EvidenceArtifact` records
+in `data/raw/analysis/<runId>/evidence-artifacts.jsonl` are immutable
+generated output (regenerated wholesale by a rerun of `analyze`) and every
+one has `privacyReviewed: false`. Since §8.3 requires `privacyReviewed:
+true` before a finding can cite it, and that fact can only become true
+through an actual human privacy review, this session adds a small,
+locally-defined (not added to `@panchnama/schema` — it is an internal
+editorial-workflow record, not a domain entity from section 5) overlay
+schema stored at `data/review/evidence-privacy/<artifactId>.json`. An
+artifact's EFFECTIVE `privacyReviewed` value at publish time is
+`raw.privacyReviewed === true || (overlay exists && overlay.
+privacyReviewed === true)`. The raw record is never mutated; the overlay
+is the durable, separately-stored human decision — the same pattern as
+`ReviewDecision` overlaying a `Finding`.
+
+**Every finding needs a `ReviewDecision` before publication (policy
+choice).** §8.3 item 6 only requires a review decision for "interpretive"
+findings, which could be read to let some automated findings bypass review
+entirely. This session instead requires EVERY candidate finding —
+regardless of `reviewStatus` — to have a `ReviewDecision` (publish/reject/
+needs_more_evidence) before its portal's assessment can be published.
+Reasoning: this is a case-study prototype whose credibility rests on
+visible human review (§1.6 principle 1); a partial automated fast-path
+would undermine that thesis for no real workflow benefit at this scale.
+`review:validate`'s primary output is the "findings awaiting review" queue
+this policy implies — this doubles as the required "CLI output listing
+findings awaiting review" deliverable (no separate `review:queue` command
+was added; the doc's own section 9.1 command list has no such command,
+and folding it into `review:validate`'s default output was judged
+sufficient and simpler).
+
+**Override-application interpretation.** `review.ts`'s TODO — "review
+overrides must preserve the original automated value" — is satisfied by
+the PAIR of (a) the untouched original `Finding` in `data/raw/analysis/
+<runId>/findings.jsonl`, which the publication transformer never writes
+to, and (b) the `ReviewDecision` file, which always carries its own
+`overriddenSeverity`/`overriddenAction` alongside the finding it reviews.
+Nothing about the original is lost from that permanent record. The
+PUBLISHED finding, embedded in `PublishedPortalAssessment.reviewedFindings`,
+is instead the reviewer's FINAL call: since §5.14's `healthy`-gate schema
+invariant reads `severity`/`reviewStatus` directly off those embedded
+Finding records (there is no secondary "effective severity" field), the
+override is baked into the embedded finding's own `severity`/
+`suggestedAction`, and `reviewStatus` is set to `"reviewed"`. A published
+finding whose `severity` field did NOT reflect the override would be
+actively misleading to any reader who doesn't also cross-reference
+`data/review/`. `packages/audit-cli/src/commands/publish.test.ts` asserts
+both halves explicitly: the published copy carries the override, and the
+raw analysis-stage record is byte-identical to what `analyze` originally
+wrote.
+
+**`data/published/<runId>/` + `current` pointer.** Each `publish` writes a
+full, atomic, historical per-run artifact at `data/published/<runId>/`
+(`portal-assessments.json`, `summary.json`) — mirroring the
+`data/raw/{inventory,crawl,analysis}/<runId>/` convention exactly — plus a
+plain-text `data/published/current` pointer file (the same `latest`
+convention used everywhere else, renamed to make its "this is what the web
+app should read" role explicit). `current` only advances on an explicit
+publish; nothing else touches it. Publishing the same `runId` twice
+refuses non-destructively unless an explicit `--force`/`overwrite: true`
+is passed (proven directly in `publish.test.ts`).
+
+**Export/report scope boundary vs. Session 16.** Implementation.md section
+10.8 lists a full public-download file set (`audit-summary.json`,
+`portals.json`, `findings.json`, `assam-audit.csv`, `methodology.json`)
+that is more naturally a Session 16 concern for the polished public
+download page. This session's `export --format json|csv` (JSON default)
+and `report` produce a single, genuinely correct, schema-valid, safely
+escaped dataset from the PUBLISHED run — proving the export pipeline is
+correct end-to-end (including the CSV formula-injection guard on real
+bytes) — without building Session 16's full multi-file public download
+UX. `export`'s JSON output embeds both the run summary (audit date,
+methodology version, limitations) and the flattened portal array in one
+file; the CSV flattens arrays to counts/canonical URLs per §10.8's own
+guidance.
+
+**Overlap-comparison evidence pool.** A hand-authored `PortalOverlapComparison`'s
+`evidenceRefs` are resolved against the SAME run's
+`data/raw/analysis/<runId>/evidence-artifacts.jsonl` pool that findings
+use — this session does not support citing evidence that was never
+materialized by `analyze`. Documented simplification: real overlap review
+(Session 17+) may need a way to attach genuinely new manual evidence not
+produced by any automated rule; that capability is out of scope here.
+
+**`review:scaffold` helper.** A small CLI command
+(`review:scaffold --run-id <id> --finding-id <id> --decision <d>
+--reviewer <name> [--rationale] [--overridden-severity] [--overridden-action]
+[--force]`) looks up the named finding for context (original severity/
+summary) and writes a pre-filled `ReviewDecision` file, refusing to
+overwrite an existing hand-authored decision without `--force`. This is in
+addition to, not instead of, direct hand-authoring of the JSON files
+(both are valid workflows).
+
+### Tests run and results
+
+```
+pnpm lint       — pass (0 errors)
+pnpm typecheck  — pass (6/6 packages)
+pnpm test       — pass (415 tests total across 33 test files in
+                   audit-cli: +24 new tests this session —
+                   review/csv.test.ts (10), review/validate.test.ts (9),
+                   commands/publish.test.ts (5) — plus all 391 pre-existing
+                   tests across every package unchanged and still green)
+pnpm build      — pass (6/6 packages + Next.js app)
+pnpm format     — applied (formatting only, no behavior changes)
+```
+
+Key new tests (mapped to this session's required test list):
+
+- Missing/unreviewed evidence → `validate.test.ts` covers both "no
+  decision at all" and "decided publish but evidence not privacy-reviewed"
+  separately, asserting the exact issue codes (`missing_review_decision`,
+  `unreviewed_evidence`) and that the finding is excluded from
+  `publishableFindingIds` until the evidence is privacy-reviewed.
+- Stale review reference → `validate.test.ts` writes a decision for a
+  finding id that doesn't exist in the run; asserts `stale_review_reference`.
+- Rejected/needs_more_evidence findings never publishable → both
+  `validate.test.ts` and `publish.test.ts` assert these decisions never
+  produce `publishableFindingIds` entries / never appear in published
+  output, even when their evidence would otherwise be privacy-reviewed.
+- Reviewer overrides → `publish.test.ts` asserts the published finding
+  carries the overridden severity while the raw analysis-stage record is
+  untouched.
+- Cross-run overlap comparison, invalid portal pair, empty/unreviewed
+  comparison evidence, non-publishable conclusion → each is its own test
+  in `validate.test.ts`'s "possible_overlap findings" block, using a
+  hand-crafted `possible_overlap` Finding + `PortalOverlapComparison`
+  appended to a real analyzed run's output (no automated rule ever
+  produces one).
+- Formula injection → `csv.test.ts` unit tests every `=`/`+`/`-`/`@`
+  prefix case on raw bytes, plus `publish.test.ts`'s dedicated test
+  building a `PublishedPortalAssessment` with attacker-shaped `name`/
+  `department`/`coverageNote` fields and asserting the exported CSV bytes
+  never contain an un-neutralized formula start.
+- Deterministic output ordering → `publish.test.ts` republishes the same
+  reviewed input into two separate published-dir roots and asserts
+  byte-identical `portal-assessments.json` and `assam-audit.csv` output.
+- Summary count integrity → `publish.test.ts` asserts each
+  `PublishedPortalAssessment`'s `critical/significant/advisoryFindingCount`
+  exactly matches a fresh count over its own `reviewedFindings`.
+- Rerun-never-overwrites → `publish.test.ts` asserts a second `publish`
+  with the same `runId` exits non-zero with a "refusing to overwrite"
+  message and leaves the first published output untouched.
+
+### Manual end-to-end pipeline demonstration
+
+Ran the real compiled CLI (`node packages/audit-cli/dist/bin.js`) end to
+end against two local fixture HTTP servers (test-only SSRF loopback
+override, same pattern as every prior session's manual verification):
+`crawl` → `analyze` → hand-authored 9 review decisions (7 publish — one
+with a severity override, 1 reject, 1 needs_more_evidence) → privacy-
+reviewed the 7 published findings' evidence → `review:validate` →
+`publish` → `export --format csv`/`--format json` → `report`. All demo
+output (`data/review/decisions/*`, `data/review/evidence-privacy/*`,
+`data/published/manual-s8-run/*`, `data/raw/{crawl,analysis}/manual-s8-run`)
+was deleted after the demonstration — it was fixture/localhost-port-tied
+throwaway data, not real Assam data, so nothing from it is committed.
+
+```
+$ review:validate --run-id manual-s8-run
+candidate findings: 9
+findings awaiting review: 0
+decisions recorded: 9 (publish=7, reject=1, needs_more_evidence=1)
+findings eligible for publication (passed every gate): 7
+review:validate PASSED
+
+$ publish --run-id manual-s8-run
+portals published: 2
+technical health counts: {"degraded":1,"unavailable":1}
+severity counts: {"critical":1,"significant":1,"advisory":5}
+
+$ publish --run-id manual-s8-run   # second call, same run id
+refusing to overwrite existing published output at ".../data/published/manual-s8-run" — never silently overwrite an already-published run. Use a different --run-id, or pass an explicit override.
+exit=1
+```
+
+Published `manual-good-portal` assessment (abbreviated): `technicalHealth:
+"degraded"`, `criticalFindingCount: 0`, `significantFindingCount: 1`
+(the `broken_link.repeated-failure.v1` finding, overridden from `critical`
+to `significant` by the review decision — the embedded finding's own
+`severity` field shows `"significant"` and `reviewStatus: "reviewed"`,
+while the original record in `data/raw/analysis/manual-s8-run/
+findings.jsonl` still read `severity: "critical"`, `reviewStatus:
+"pending_review"`, confirming the override never mutated the raw stage),
+`advisoryFindingCount: 2`, `reviewedFindings.length: 3` (the rejected
+freshness finding and the needs-more-evidence directory-mismatch finding
+are both absent, as expected).
+
+CSV export snippet (`assam-audit.csv`):
+
+```
+portalId,name,canonicalUrl,department,portalType,officialStatus,technicalHealth,continuingRole,suggestedAction,criticalFindingCount,significantFindingCount,advisoryFindingCount,reviewedFindingCount,pagesAttempted,pagesObserved,linksChecked,browserFallbackUsed,coverageNote,lastCheckedAt,auditRunId
+manual-good-portal,Manual Demo Good Portal,http://127.0.0.1:58271/,,information,verified,degraded,not_reviewed,repair,0,1,2,3,2,1,1,false,"1 of 2 attempted page check(s) returned a response; 1 link(s) checked.",2026-08-31T18:00:00Z,manual-s8-run
+manual-unreachable-portal,Manual Demo Unreachable Portal,http://127.0.0.1:59998/,,information,verified,unavailable,not_reviewed,repair,1,0,3,4,1,0,0,false,"0 of 1 attempted page check(s) returned a response; 0 link(s) checked.",2026-08-31T18:05:00Z,manual-s8-run
+```
+
+`report.md` produced a correct Markdown summary (technical-health table,
+severity table, suggested-action table, one priority critical finding for
+`manual-unreachable-portal`, limitations list carried over from the
+`AuditRun`, and a per-portal table).
+
+### Known limitations (deferred, explicit)
+
+- `continuingRole` is `"not_reviewed"` for every portal in this session's
+  test/demo data — no real overlap comparisons exist yet (none are
+  expected until real Assam portals exist, Session 17+18); the full
+  overlap workflow is exercised only against fixture portals in
+  `validate.test.ts`.
+- Overlap-comparison evidence must already exist as a materialized
+  `EvidenceArtifact` from the same analysis run (see "Overlap-comparison
+  evidence pool" decision above) — a reviewer cannot yet attach brand-new
+  manual evidence not produced by any rule.
+- `export`/`report` produce one correct dataset from the published run,
+  not Session 16's full public multi-file download set (`audit-summary.json`,
+  `portals.json`, `findings.json`, `methodology.json` as four separate
+  files) — see "Export/report scope boundary" above.
+- Portal-level `suggestedAction` in `PublishedPortalAssessment` is
+  computed as the single most-urgent action across that portal's published
+  findings (priority order: `review_retirement` > `repair` >
+  `review_consolidation` > `manual_assessment` > `maintain`, defaulting to
+  `maintain` with zero published findings) — a documented judgment call,
+  since section 5.10 stores one `suggestedAction` per portal but findings
+  can each carry their own.
+- `lastCheckedAt` on a `PublishedPortalAssessment` falls back to the
+  analysis run's `analyzedAt` when a portal has zero published findings
+  (otherwise it is the latest `lastObservedAt` among that portal's
+  published findings) — there is no separate "portal was crawled at time
+  T" timestamp independent of findings at this session's data boundary.
+- No web-facing consumer of `data/published/` exists yet (Session 11+).
+
+### Next session prerequisites (Session 9 — Database foundation and moderation storage)
+
+- Sessions 0–8 have built a complete, working, schema-valid static audit
+  pipeline — inventory → crawl → analyze → review → publish → export/report
+  — entirely on fixture-driven test/demo data. Zero real Assam government
+  data exists anywhere in the repository yet; `data/raw/`, `data/review/`,
+  and `data/published/` are all empty except `.gitkeep` placeholders as of
+  this commit. Real inventory/crawl/review work begins in Session 17+.
+- Session 9 begins a STRUCTURALLY INDEPENDENT subsystem: PostgreSQL +
+  Drizzle + Docker Compose for anonymous citizen-experience submissions
+  and moderation (implementation.md section 9.5, section 14 Session 9). It
+  does not touch, extend, or depend on anything in `packages/audit-cli`,
+  `packages/audit-core`, or the `data/{raw,review,published,evidence}`
+  directories this session and its predecessors built — per section 4.2/
+  9.5, audit observations must never move into PostgreSQL.
+- `packages/database` currently exists only as a placeholder package
+  (`PACKAGE_NAME` export, one trivial test) from Session 0 — Session 9 is
+  the first session that gives it real content: Drizzle schema, migrations,
+  `docker-compose.yml`, and the repository functions listed in section 9.5.
+- `PublishedPortalAssessment.portal.id` (this session's output shape) is
+  the `portal_id` foreign-key value Session 9's `experience_submissions`
+  table will need to validate against once real published portals exist —
+  worth keeping in mind when designing that table's `portal_id` validation
+  approach, per section 9.5's "foreign-key validation of portal_id against
+  a synchronized published-portal registry or equivalent application
+  validation."

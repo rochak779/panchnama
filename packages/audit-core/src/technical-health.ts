@@ -19,19 +19,22 @@
  * for exactly this reason — see `packages/audit-cli/src/analyze/`.
  */
 
-import type { TechnicalHealth } from "@panchnama/schema";
+import type { Finding, TechnicalHealth } from "@panchnama/schema";
 import type { FindingDraft } from "./rules/types.js";
 
 /** Rule IDs whose critical-severity output represents "the entry point
  * itself could not be reached at all" (as opposed to a technical problem
- * on an otherwise-reachable portal). */
-const UNAVAILABILITY_RULE_IDS = new Set([
+ * on an otherwise-reachable portal). Exported so the session-8 publication
+ * transformer (`packages/audit-cli`) can reuse the exact same rule-id sets
+ * when deriving the FINAL, reviewed-only `TechnicalHealth` instead of
+ * duplicating this list. */
+export const UNAVAILABILITY_RULE_IDS = new Set([
   "availability.unavailable.v1",
   "availability.not-found.v1",
   "availability.server-error.v1",
 ]);
 
-const NOT_ASSESSABLE_RULE_IDS = new Set([
+export const NOT_ASSESSABLE_RULE_IDS = new Set([
   "availability.automation-blocked.v1",
   "availability.access-restricted.v1",
 ]);
@@ -54,6 +57,47 @@ export function deriveProvisionalTechnicalHealth(findings: FindingDraft[]): Tech
   }
 
   const notAssessable = findings.some((f) => NOT_ASSESSABLE_RULE_IDS.has(f.ruleId));
+  if (notAssessable) {
+    return "not_assessable";
+  }
+
+  return "healthy";
+}
+
+/**
+ * FINAL technical-health derivation (Session 8) — implementation.md
+ * section 7.7, computed from `reviewed`-only `Finding` records rather than
+ * candidate `FindingDraft`s. This is the value the publication transformer
+ * writes into `PublishedPortalAssessment.technicalHealth`.
+ *
+ * Only findings with `reviewStatus === "reviewed"` are considered — a
+ * finding a reviewer rejected or marked `needs_more_evidence` never
+ * reaches this function in the first place (the publication transformer
+ * filters to `ReviewDecision.decision === "publish"` findings, which are
+ * always stamped `reviewStatus: "reviewed"` at that point — see
+ * `review/transform.ts`), but the extra guard here keeps this function
+ * correct even if called with a mixed set.
+ */
+export function deriveTechnicalHealthFromReviewedFindings(findings: Finding[]): TechnicalHealth {
+  const reviewed = findings.filter((f) => f.reviewStatus === "reviewed");
+
+  const criticalUnavailability = reviewed.some(
+    (f) => f.severity === "critical" && UNAVAILABILITY_RULE_IDS.has(f.ruleId),
+  );
+  if (criticalUnavailability) {
+    return "unavailable";
+  }
+
+  const otherCriticalOrSignificant = reviewed.some(
+    (f) =>
+      (f.severity === "critical" || f.severity === "significant") &&
+      !NOT_ASSESSABLE_RULE_IDS.has(f.ruleId),
+  );
+  if (otherCriticalOrSignificant) {
+    return "degraded";
+  }
+
+  const notAssessable = reviewed.some((f) => NOT_ASSESSABLE_RULE_IDS.has(f.ruleId));
   if (notAssessable) {
     return "not_assessable";
   }
