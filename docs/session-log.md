@@ -569,7 +569,7 @@ No network activity occurred at any point in this session.
   Session 7's rule engine tries to resolve it.
 - **`parameters`/`overrides` are structurally, not semantically, typed.**
   `checks.yaml`'s per-rule `parameters` is a generic `Record<string,
-  unknown>`; this session does not know each rule's exact parameter shape
+unknown>`; this session does not know each rule's exact parameter shape
   (e.g. that `availability.unavailable.v1` needs `spacedAttempts: number`)
   because rule implementations don't exist until Session 7. Session 7
   should add rule-specific parameter validation at that point.
@@ -612,3 +612,362 @@ No network activity occurred at any point in this session.
   configuration prevents network activity."
 - `config/portals/` remains empty of actual override files until Session 3
   creates `Portal` records with real IDs to override.
+
+---
+
+## Session 3 — Inventory ingestion and normalization
+
+### Files changed
+
+- `packages/audit-core/src/url-normalize.ts` (new) — pure URL normalization
+  function implementing implementation.md section 6.5.
+- `packages/audit-core/src/url-normalize.test.ts` (new) — 14 tests.
+- `packages/audit-core/src/index.ts` — re-export `url-normalize.js`.
+- `packages/audit-cli/package.json` — added `cheerio` (HTML parsing) and
+  `@panchnama/audit-core` (workspace) dependencies.
+- `packages/audit-cli/src/inventory/candidate.ts` (new) — the common
+  intermediate `PortalCandidateReference`/`RejectedCandidate` shapes every
+  adapter produces.
+- `packages/audit-cli/src/inventory/csv.ts` (+ test) (new) — hand-rolled
+  RFC 4180-style CSV parser (no new dependency for this session's simple
+  fixture format).
+- `packages/audit-cli/src/inventory/adapters/html.ts`, `json.ts`, `csv.ts`
+  (+ tests) (new) — the three seed adapters.
+- `packages/audit-cli/src/inventory/seed-inputs.ts` (new) — loads
+  `data/seed/source-inputs.json` and `data/seed/aliases.json`.
+- `packages/audit-cli/src/inventory/id.ts` (+ test) (new) — deterministic
+  `Portal.id` and inventory-build `runId` derivation.
+- `packages/audit-cli/src/inventory/merge.ts` (+ test) (new) — conservative
+  dedup/merge into `Portal` records.
+- `packages/audit-cli/src/inventory/build.ts` (+ test) (new) —
+  `computeInventoryBuild`: orchestrates config loading, adapters,
+  normalization, merge, and `InventorySource` record construction.
+- `packages/audit-cli/src/inventory/report.ts` (new) — human-reviewable
+  Markdown report generator.
+- `packages/audit-cli/src/inventory/write.ts` (new) — atomic stage-then-move
+  write of one inventory build's output, plus the `latest` pointer file.
+- `packages/audit-cli/src/commands/inventory-build.ts`,
+  `inventory-validate.ts` (+ tests) (new) — the two CLI commands.
+- `packages/audit-cli/src/cli.ts` — extended the `runCli` switch with
+  `inventory:build` and `inventory:validate`; added generic `--state`,
+  `--seed-dir`, `--out-dir`, `--run-id` flag parsing alongside the existing
+  `--config-dir`.
+- `packages/audit-cli/src/index.ts` — re-export the new command/inventory
+  modules for programmatic use.
+- `data/seed/assam-directory-example.html`, `.json`, `.csv` (new) —
+  illustrative, clearly-fictional seed fixtures (all domains use the
+  reserved `.example` TLD) exercising all three adapters.
+- `data/seed/source-inputs.json` (new) — Session 3's fixture-wiring map
+  from `config/sources.assam.yaml` source IDs to a local seed file/format.
+- `data/seed/aliases.json` (new) — one illustrative manually-reviewed URL
+  alias mapping.
+- `data/README.md` — documented `raw/inventory/` layout and `seed/`'s new
+  contents.
+- `docs/adding-sources.md` — added a short note on `source-inputs.json`
+  and what `inventory:build` does/doesn't do yet.
+- `docs/session-log.md` — this entry.
+
+### Decisions
+
+**Where URL normalization lives.** `packages/audit-core`, not
+`packages/audit-cli`. It is a pure, deterministic, no-I/O function with no
+dependency on any config schema — both this session's ingestion and the
+future crawler (Session 4+, which normalizes links at crawl time) need the
+exact same rules, and `audit-core` is documented (section 4.3) as the
+home for "pure audit rules and classifiers" shared across the pipeline.
+Its options shape (`UrlNormalizationOptions`) deliberately mirrors
+`config/crawl-policy.yaml`'s `urlNormalization` block field-for-field so
+callers pass the loaded config straight through without an adapter layer,
+but `audit-core` itself has zero dependency on `audit-cli`'s config
+schemas (no import cycle risk).
+
+**Trailing-slash policy.** "strip": a trailing slash is removed from any
+path longer than the bare root (`/foo/` → `/foo`), but the root path
+always stays `/`. Matches `config/crawl-policy.yaml`'s committed default.
+
+**http vs. https identity.** Deliberately conservative: normalization
+lowercases the scheme but never treats `http:` and `https:` as
+interchangeable for portal identity. Two candidates that differ only in
+scheme remain two separate `Portal` records unless an explicit
+`data/seed/aliases.json` entry says otherwise. Reasoning: section 6.5
+lists specific normalization rules and does not list "merge http/https,"
+and the section's explicit "do not merge URLs solely because their page
+titles match" signals a general bias toward conservative, evidence-based
+merging over inferred identity. A real crawler-observed redirect
+(Session 4+) is the other sanctioned path to treat them as the same
+portal, once redirect observations actually exist. Tested in
+`url-normalize.test.ts` and `merge.test.ts`.
+
+**Redirect-aware normalization: deferred, not fabricated.** No redirect
+concept exists in the seed data format for this session. The crawler
+(Session 4+) is what will observe real redirect chains; inventing a
+"this URL redirects to that URL" field in seed JSON/CSV now would be
+speculative and unfalsifiable. This is a scope decision, documented here
+per the standard session prompt's "if implementation.md conflicts with
+actual repository constraints, document the conflict."
+
+**Seed-input wiring: separate `data/seed/source-inputs.json`, not a new
+field on `config/sources.assam.yaml`.** Chose option (b) from the task's
+two offered choices. Reasoning: `config/sources.assam.yaml` describes
+_audit policy_ (which sources exist, are they enabled, what type are
+they) — that's genuinely reusable once Session 17 does real research and
+Session 4+'s crawler exists. "Which local seed fixture file exercises
+this source before live crawling is authorized" is Session-3-specific
+pre-flight wiring that has no meaning once real crawling starts; keeping
+it in a separate, clearly-labeled seed file keeps Session 2's config
+surface conceptually stable and avoids adding fields to a schema that
+will need to be deprecated/removed later. `data/seed/source-inputs.json`
+is loaded by `packages/audit-cli/src/inventory/seed-inputs.ts` with its
+own small Zod schema; it is intentionally never read by
+`sources:validate` (that stays Session-2-only).
+
+**Dedup/merge policy.** Group candidates by canonical normalized URL
+(after applying any manual alias substitution from `data/seed/aliases.json`).
+Within a merged group:
+
+- **Name (conflicting-label policy):** the name from the first-seen
+  candidate whose source `sourceType` is `official_directory` or
+  `official_page` wins; if no merged candidate came from such a source,
+  the first-seen candidate's name wins regardless. Rationale: an
+  officially-sourced label is more likely accurate than one from an
+  unverified source, and "first seen" is the only deterministic
+  tiebreak available when there's no official label at all. Tested in
+  `merge.test.ts` ("prefers the name from an officially-sourced
+  candidate…", "falls back to the first-seen name…"). Demonstrated live
+  in the real build: "Transport Department" merges a JSON-sourced entry
+  named "Transport Department (legacy RTO domain)" (from
+  `official_directory` source `assam-online-services`, first in
+  ingestion order) with a CSV-sourced entry named plain "Transport
+  Department" (also `official_directory`, later in ingestion order) —
+  the JSON name wins because it is first-seen among equally-official
+  sources, which is the documented, deterministic behavior, not a bug.
+- **`hostnames`:** the canonical URL's own hostname, plus every merged
+  candidate's own (pre-alias) hostname. Two different hostnames only
+  ever end up on the same `Portal` record when a documented alias
+  connects them — `mergeCandidates` never infers a same-portal
+  relationship from similarity alone (implementation.md section 6.5's
+  "do not merge... solely because" principle, generalized).
+- **`discovery`:** every merged candidate contributes a
+  `{discoveredAt, discoveredFromUrl, discoveryMethod}` entry, deduped
+  only on exact `(discoveredFromUrl, discoveryMethod)` pairs (which
+  only collapses genuine re-observations of the same route within one
+  build, never two different routes). Nothing is ever dropped or
+  overwritten — this is the "no candidate loses its source provenance"
+  exit criterion, mechanically enforced by `inventory:validate`'s
+  "at least one discovery route" check.
+- **`sourceRefs`:** union of every merged candidate's `sourceId`.
+- **`department`/`portalType`/`tags`:** first non-empty value in
+  insertion order for scalar fields; sorted-unique union for `tags`.
+
+**Official-status default rule.** A candidate defaults to `verified` only
+when its source's `sourceType` is `official_directory` or `official_page`
+— `manual_verified` does _not_ auto-verify a candidate in this session's
+automated path (narrower than "any configured source"). `manual_verified`
+exists for `InventorySource` records produced by a human-confirmed
+process this fixture-driven session doesn't perform; treating it as
+auto-verifying here would blur "a human confirmed this" with "the config
+file says this source category." `disputed` has no automated path
+anywhere in this session — it is manual-review-only, per the task brief,
+and nothing in `mergeCandidates` can produce it (tested: "never emits
+'disputed' automatically").
+
+**Malformed URL handling.** Every seed adapter (HTML/JSON/CSV) passes a
+non-empty href/url field straight through as a candidate — adapters never
+attempt URL validation themselves (single responsibility: extraction,
+not normalization). All URL well-formedness/scheme checking happens once,
+centrally, in `normalizeUrl`. A candidate that fails normalization is
+never silently dropped or silently included: it is captured in
+`candidates.json` and the human-readable `report.md`'s "Rejected /
+malformed candidates" section with its reason, and excluded from
+`portals.json`. Only HTML seed input is given a base URL for relative-URL
+resolution (the source's configured `url`); JSON/CSV entries are
+documented as already-absolute, so a malformed or accidentally-relative
+value there is correctly flagged instead of "resolving" against the
+source page (almost any string resolves successfully once _any_ base is
+supplied, which would defeat malformed-URL detection for those formats).
+
+**Output location and layout.** `data/raw/inventory/<runId>/`, where
+`runId` is `assam-<UTC-timestamp>` (e.g. `assam-20260831T172849Z`),
+containing `portals.json`, `sources.json`, `candidates.json` (every
+candidate — merged, alternate, and rejected — with its original URL,
+normalized URL, and which `Portal.id` it ended up in, for auditability),
+and `report.md` (the human-reviewable summary). `data/raw/inventory/latest`
+holds the current `runId` as plain text (not a symlink, for portability).
+Chosen over `data/published/` because this output is explicitly
+pre-review, fixture-driven, and not yet a validated/reviewed publication
+dataset (that transformation is Session 8's job) — matches section 4.3's
+description of `data/raw/` as "generated raw crawl data" and is already
+git-ignored (`data/raw/*` in `.gitignore`, unchanged from Session 0/2).
+
+**Atomicity and no-silent-overwrite.** `writeInventoryBuildAtomic` stages
+every output file in a temp directory _inside_ `data/raw/inventory/`
+(same filesystem, so the final `rename` is atomic) and only calls
+`rename` into the final `<runId>/` path once every file is written; on
+any failure the staging directory is removed and nothing partial is left
+behind. If `<runId>/` already exists, the command refuses outright rather
+than overwriting — this only happens if `inventory:build` runs twice
+within the same UTC second, which is treated as a caller error per
+section 9.2 ("never silently overwrite a completed run").
+
+**Human-reviewable inventory output.** A generated Markdown report
+(`report.md`) alongside the machine JSON: build summary, an inventory-
+sources table, a portals table (name / official status / canonical URL /
+sources / discovery routes), and a rejected-candidates table so a
+reviewer can see what did _not_ make it in and why.
+
+**CSV parsing: hand-rolled, no new dependency.** The seed CSV format is
+simple (four columns, optional quoting) and adding a CSV library for it
+felt like more surface area than the format warrants; `packages/audit-cli/src/inventory/csv.ts`
+implements RFC 4180 quoting/escaping/CRLF handling as a small pure
+function with its own unit tests. HTML parsing does use a new dependency
+(`cheerio`), as explicitly instructed by the task brief and already
+recommended in implementation.md section 4.1.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/audit-cli run test
+ ✓ src/config/crawl-policy.test.ts (8 tests)
+ ✓ src/config/source-registry.test.ts (12 tests)
+ ✓ src/inventory/merge.test.ts (10 tests)
+ ✓ src/inventory/adapters/html.test.ts (6 tests)
+ ✓ src/config/validate.test.ts (7 tests)
+ ✓ src/inventory/build.test.ts (4 tests)
+ ✓ src/commands/inventory-validate.test.ts (6 tests)
+ ✓ src/inventory/adapters/json.test.ts (6 tests)
+ ✓ src/inventory/adapters/csv.test.ts (6 tests)
+ ✓ src/inventory/csv.test.ts (7 tests)
+ ✓ src/config/checks.test.ts (7 tests)
+ ✓ src/config/digest.test.ts (6 tests)
+ ✓ src/commands/inventory-build.test.ts (3 tests)
+ ✓ src/inventory/id.test.ts (5 tests)
+ ✓ src/config/portal-override.test.ts (5 tests)
+ ✓ src/commands/sources-validate.test.ts (3 tests)
+ ✓ src/index.test.ts (1 test)
+ Test Files  17 passed (17) / Tests  102 passed (102)
+
+$ pnpm --filter @panchnama/audit-core run test
+ ✓ src/index.test.ts (1 test)
+ ✓ src/url-normalize.test.ts (14 tests)
+ Test Files  2 passed (2) / Tests  15 passed (15)
+
+$ pnpm lint        # eslint . — exit 0, no output
+$ pnpm typecheck   # 6 workspace projects, tsc --noEmit — exit 0
+$ pnpm test        # all workspaces — 185 tests total — all passed
+$ pnpm build       # apps/web (next build, 4/4 static pages) + 5 packages (tsc) — exit 0
+$ pnpm format      # prettier — reformatted the new files to project style; no logic change
+```
+
+Manual `inventory:build` / `inventory:validate` verification (real
+`config/sources.assam.yaml` + real `data/seed/*` fixtures, no network
+activity):
+
+```
+$ pnpm run audit inventory:build --state assam
+inventory:build PASSED
+  runId: assam-20260831T172849Z
+  portals: 7
+  inventory sources: 3
+  rejected/malformed candidates: 4
+  output: /Users/.../Panchnama/data/raw/inventory/assam-20260831T172849Z
+  report: /Users/.../Panchnama/data/raw/inventory/assam-20260831T172849Z/report.md
+
+$ pnpm run audit inventory:validate --state assam
+inventory:validate PASSED
+  runId: assam-20260831T172849Z
+  portals: 7
+  inventory sources: 3
+```
+
+7 portals from 3 sources / 3 seed files, with the Agriculture Department
+Portal and Transport Department portals each correctly merged across two
+sources (dedup working), and the relative `/schemes/pension` link
+correctly resolved against `https://assam.gov.in`. 4 candidates correctly
+rejected (one malformed absolute URL, one non-http scheme, one malformed
+CSV URL, one non-http scheme) and listed in `report.md` rather than
+silently dropped.
+
+Failure-case demonstration — `inventory:validate` against a deliberately
+broken output directory (a portal with empty `sourceRefs`, a duplicate
+`id`, and a `sourceRefs` entry that doesn't resolve to any loaded
+`InventorySource`):
+
+```
+$ pnpm run audit inventory:validate --state assam
+inventory:validate FAILED — 3 issue(s):
+  - portal "broken-portal" (Broken Portal (missing sourceRefs)) has no sourceRefs — lost provenance
+  - duplicate Portal id: "broken-portal"
+  - portal "broken-portal" (Duplicate Id Portal) references sourceRef "nonexistent-source", which does not resolve to any loaded InventorySource
+(exit code 1)
+```
+
+No network activity occurred at any point in this session (verified: no
+`fetch`/HTTP client import anywhere under `packages/audit-cli/src/inventory/`
+or `packages/audit-core/src/`).
+
+### Known limitations (deferred checks, explicit)
+
+- **All ingested content is illustrative fixture data.** Every seed file
+  under `data/seed/` (`assam-directory-example.{html,json,csv}`,
+  `aliases.json`) is hand-authored, uses the reserved `.example` TLD, and
+  is explicitly documented in-file as not a real scraped government page.
+  Real seed content sourcing and verification happens in Session 17.
+- **Redirect-aware normalization deferred to Session 4+.** No redirect
+  concept exists in this session's seed format or normalization function;
+  the crawler is what will observe real redirect chains.
+- **`disputed` officialStatus is manual-only.** No code path in this
+  session (or any session so far) can produce it; it exists in the schema
+  for a future human-review workflow.
+- **`data/seed/source-inputs.json` mapping is 1:1 with the current 3
+  sources.** Adding a 4th source to `config/sources.assam.yaml` without a
+  matching `source-inputs.json` entry produces a build-time _warning_
+  (not a failure) and simply contributes no candidates from that source —
+  documented in `docs/adding-sources.md`.
+- **No cross-check against `config/portals/*.yaml` overrides.** Session 2
+  validates override file _shape_ only (no real `Portal` ids existed
+  yet); now that real `Portal` records exist, a future session could add
+  a check that any override's `portalId` resolves to an actual built
+  portal. Out of scope here — this session's `inventory:validate` checks
+  only the invariants the task brief specifies (discovery routes,
+  sourceRefs, duplicate ids, sourceRef resolution).
+- **`Portal.id` derivation is a URL-slug heuristic**
+  (`packages/audit-cli/src/inventory/id.ts`), not a registry-assigned ID.
+  Deterministic and URL-safe, but if a portal's canonical URL later
+  changes (e.g. a real redirect/migration observed in Session 4+), its
+  derived ID changes too — there is no persistent identity layer across
+  builds yet. This is acceptable for a pre-review fixture-driven build;
+  Session 8's publication pipeline is a more natural place to introduce
+  stable cross-run portal identity if needed.
+- **`inventory:build`'s per-run output directories accumulate** under
+  `data/raw/inventory/` (each run keeps its own timestamped directory,
+  by design, to avoid silently overwriting). Nothing in this session
+  prunes old runs; `data/raw/` is git-ignored so this doesn't affect the
+  repository, but a long-lived local checkout will accumulate directories
+  over time. Left for a later session (or manual cleanup) to address if
+  it becomes a problem.
+
+### Next session prerequisites (Session 4 — Safe fetcher and crawl frontier)
+
+- `data/raw/inventory/<runId>/portals.json` now contains real (fixture-
+  derived) `Portal` records with `id`, `canonicalUrl`, `hostnames`, and
+  `crawlProfile` (currently always absent/default) — Session 4's crawl
+  frontier should read the latest inventory build's portals as its crawl
+  target list, most likely via `readLatestRunId` +
+  `packages/audit-cli/src/inventory/write.ts`'s output convention rather
+  than re-deriving it.
+- `@panchnama/audit-core`'s `normalizeUrl` (with
+  `UrlNormalizationOptions` sourced from `config/crawl-policy.yaml`'s
+  `urlNormalization` block, already loaded by
+  `packages/audit-cli/src/config/crawl-policy.ts`) is ready for the
+  crawler to reuse for link normalization during crawling — do not
+  reimplement normalization in the crawler.
+- The http/https-identity and redirect-deferral decisions above are
+  exactly the ones Session 4+ needs to revisit once real redirect chains
+  exist: a redirect observation is the documented, sanctioned way to
+  treat an http/https pair (or two different hosts) as the same portal,
+  the same way `data/seed/aliases.json` does manually today.
+- `config/crawl-policy.yaml`'s `boundaries`, `exclusions`,
+  `robotsAndIdentification`, `jsRendering`, and `safeOperation` blocks
+  (loaded, typed, and validated since Session 2) are all still
+  unconsumed by any actual fetcher — Session 4 is where they get used for
+  real.

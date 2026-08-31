@@ -22,4 +22,8 @@ export const PACKAGE_NAME = "@panchnama/audit-cli" as const;
 
 export * from "./config/index.js";
 export * from "./commands/sources-validate.js";
+export * from "./commands/inventory-build.js";
+export * from "./commands/inventory-validate.js";
+export * from "./inventory/candidate.js";
+export * from "./inventory/build.js";
 export * from "./cli.js";

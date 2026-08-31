@@ -67,11 +67,21 @@ file cannot silently proceed to a later step.
 ## What happens next (not this step)
 
 Adding a source here only registers _intent to use it_. A later pipeline
-step ("inventory build", a separate tool from a later development session)
-is what actually fetches a source, records when it was retrieved
-(`retrievedAt`) and where the evidence snapshot was saved (`evidencePath`),
-and turns it into the permanent inventory record. Editing this file and
-running `sources:validate` never contacts the internet.
+step ("inventory build") is what actually turns it into inventory records.
+
+As of Session 3, `pnpm run audit inventory:build --state assam` exists,
+but it does **not** yet fetch anything over the network (live crawling is
+gated until Session 17). It works entirely from local seed fixture files
+under `data/seed/`, wired to source IDs via `data/seed/source-inputs.json`
+(which local file + format — `html`, `json`, or `csv` — to ingest for each
+source). If you add a new source to `config/sources.assam.yaml` and want
+`inventory:build` to pick it up in this pre-live-crawl mode, you also need
+to add a matching entry to `data/seed/source-inputs.json` pointing at a
+seed file under `data/seed/`. `inventory:build` stamps `retrievedAt` (build
+time) and `evidencePath` (the seed file path) onto the generated
+`InventorySource` record — editing `config/sources.assam.yaml` and running
+`sources:validate` still never contacts the internet, and neither does
+`inventory:build` in its current fixture-driven form.
 
 ## Before using a source for a real audit run
 

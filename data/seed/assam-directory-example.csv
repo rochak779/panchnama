@@ -1,0 +1,5 @@
+name,url,department,notes
+"Kamrup District Administration","https://kamrup.assam.gov.example","District Administration","Illustrative fixture entry"
+"Dibrugarh District Administration","https://dibrugarh.assam.gov.example/","District Administration",""
+"Transport Department","https://transport.assam.gov.example","Transport","Canonical target for the legacy RTO alias in data/seed/aliases.json"
+"Broken Row","ht!tp://bad url with spaces","Unknown","Illustrative malformed URL, expected to be flagged not silently dropped"

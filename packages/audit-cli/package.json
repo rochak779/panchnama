@@ -20,7 +20,9 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
+    "@panchnama/audit-core": "workspace:*",
     "@panchnama/schema": "workspace:*",
+    "cheerio": "^1.2.0",
     "yaml": "^2.9.0",
     "zod": "^3.25.76"
   }

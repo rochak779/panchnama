@@ -1,0 +1,10 @@
+{
+  "_comment": "Manually reviewed alias mappings for Session 3's inventory:build. Each entry maps an originally-observed URL to the canonical URL a human reviewer has confirmed represents the SAME portal. This is a manual/reviewed input, never an automated inference — inventory:build never merges two different hostnames on its own (implementation.md section 6.5: 'Do not merge URLs solely because their page titles match'). 'from' may be given in any form the seed data used; it is normalized with the same rules as every other candidate before comparison, so exact original casing/trailing-slash does not need to match. Illustrative fixture content for this session; real alias review happens as part of Session 17/18 editorial work.",
+  "aliases": [
+    {
+      "from": "https://rto-assam.gov.example",
+      "to": "https://transport.assam.gov.example",
+      "reason": "Illustrative fixture: legacy RTO domain manually confirmed to be the same Transport Department portal as the canonical domain listed in the district directory. Not a real verified alias."
+    }
+  ]
+}

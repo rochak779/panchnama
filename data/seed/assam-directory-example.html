@@ -1,0 +1,42 @@
+<!--
+  data/seed/assam-directory-example.html
+
+  ILLUSTRATIVE FIXTURE — NOT A REAL SCRAPED GOVERNMENT PAGE.
+
+  This file is a small, hand-authored example of what a directory-style
+  HTML page might look like, used only to exercise Session 3's HTML seed
+  adapter deterministically in tests and in `inventory:build`. All linked
+  domains use the reserved `.example` TLD (RFC 2606) so nothing here
+  resolves on the real internet. Real seed content sourcing, from actual
+  verified Assam government pages, happens in Session 17
+  (implementation.md section 14).
+
+  Wired to source "assam-gov-portal" (config/sources.assam.yaml,
+  sourceType: official_page) via data/seed/source-inputs.json, with
+  discoveryMethod "outbound_link" (this page is treated as an official
+  page whose outbound links are candidate portals, not itself a listing
+  directory).
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Government of Assam — Departments (illustrative fixture)</title>
+  </head>
+  <body>
+    <main>
+      <h1>Departments and portals</h1>
+      <ul class="directory">
+        <li><a href="https://agriculture.assam.gov.example/">Agriculture Department Portal</a></li>
+        <li><a href="https://health.assam.gov.example">Health &amp; Family Welfare Portal</a></li>
+        <li><a href="https://online.assam.gov.example">Assam Online Services</a></li>
+        <li><a href="/schemes/pension">Pension Schemes (relative link)</a></li>
+        <li><a href="http://">Broken Entry (malformed href, illustrative)</a></li>
+        <li>
+          <a href="mailto:info@assam.gov.example"
+            >Contact by email (non-http scheme, expected to be rejected)</a
+          >
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>

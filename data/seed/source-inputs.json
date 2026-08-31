@@ -1,0 +1,20 @@
+{
+  "_comment": "Session 3 fixture-wiring map: which local seed file/format `inventory:build --state assam` should ingest for each config/sources.assam.yaml source ID. Deliberately kept OUT of config/sources.assam.yaml (see docs/session-log.md 'Session 3' for the full reasoning): config describes audit policy (which sources exist, whether they are enabled, their sourceType), not this pre-live-crawl session's fixture wiring. Once Session 17 performs real research and Session 4+'s crawler exists, this file's role is superseded by actual HTTP fetches; it is a placeholder ingestion map for exercising the adapters and pipeline before live crawling is authorized (implementation.md section 12.5's legal-risk gate).",
+  "sources": {
+    "assam-gov-portal": {
+      "format": "html",
+      "path": "assam-directory-example.html",
+      "discoveryMethod": "outbound_link"
+    },
+    "assam-online-services": {
+      "format": "json",
+      "path": "assam-directory-example.json",
+      "discoveryMethod": "listed"
+    },
+    "assam-district-portal-directory": {
+      "format": "csv",
+      "path": "assam-directory-example.csv",
+      "discoveryMethod": "listed"
+    }
+  }
+}

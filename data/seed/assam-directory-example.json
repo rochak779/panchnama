@@ -1,0 +1,29 @@
+{
+  "_comment": "ILLUSTRATIVE FIXTURE — NOT A REAL SCRAPED GOVERNMENT DATASET. Hand-authored example structured-JSON seed input, used only to exercise Session 3's JSON seed adapter. All domains use the reserved .example TLD (RFC 2606). Wired to source 'assam-online-services' (config/sources.assam.yaml, sourceType: official_directory) via data/seed/source-inputs.json, discoveryMethod 'listed'. Real seed content sourcing happens in Session 17.",
+  "entries": [
+    {
+      "name": "Assam Online Services",
+      "url": "https://online.assam.gov.example",
+      "department": "Directorate of Information Technology",
+      "portalType": "transactional",
+      "tags": ["citizen-services"]
+    },
+    {
+      "name": "Agriculture Department Portal",
+      "url": "https://agriculture.assam.gov.example/",
+      "department": "Agriculture"
+    },
+    {
+      "name": "Transport Department (legacy RTO domain)",
+      "url": "https://rto-assam.gov.example",
+      "department": "Transport",
+      "notes": "Illustrative legacy domain; expected to be merged into the canonical Transport Department portal via data/seed/aliases.json."
+    },
+    {
+      "name": "Entirely broken entry",
+      "url": "javascript:alert(1)",
+      "department": "Unknown",
+      "notes": "Illustrative non-http(s)-scheme entry to exercise malformed-candidate handling."
+    }
+  ]
+}
