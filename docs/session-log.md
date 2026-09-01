@@ -3683,3 +3683,158 @@ column reflow of every count grid.
 - `StatusBadge`/`SeverityMarker`/`SUGGESTED_ACTION_VISUALS` are ready for
   reuse in inventory table/card cells — do not re-derive a second status
   label map.
+
+## Session 13 — Inventory exploration
+
+**Goal:** Make the estate searchable and prioritizable without overwhelming
+the user (implementation.md section 14 / section 10.3).
+
+### Files changed
+
+- `apps/web/src/lib/inventoryFilters.ts` (+ test, new) — pure, unit-tested
+  filter/sort/URL-serialization logic, following Session 12's
+  `overviewSummary.ts` pattern: `filterAssessments` (search + six dropdown
+  filters, AND semantics), `sortAssessments` (name/health/severity/last-
+  checked), `departmentLabel`/`getDepartmentOptions` (a real, selectable
+  "Unspecified" bucket for portals with no `department`), `highestSeverity`/
+  `reviewedFindingCount` (the inventory table's derived columns), and the
+  `filtersToSearchParams` / `searchParamsToFilters` round trip that makes a
+  filtered view a real, shareable URL (never throws on a malformed/
+  hand-edited query string — falls back to defaults instead).
+- `apps/web/src/components/inventory/InventoryExplorer.tsx` (+ test,
+  `InventoryExplorer.module.css`, new) — the client component (needs
+  `useSearchParams`/`useRouter`) owning search/filter/sort UI and an
+  accessible `<table>` (real `<th scope="col">`/`<th scope="row">`, a
+  `<caption>`, an `overflow-x: auto` wrapper for narrow viewports rather
+  than a duplicated card layout) with all nine implementation.md section
+  10.3 columns. Search filters the visible list immediately off local
+  input state; only the URL write for the search term is debounced (250ms)
+  — every other filter writes to the URL immediately on change, since
+  those are discrete select changes, not per-keystroke.
+- `apps/web/src/app/inventory/page.tsx` (new) — server component: loads
+  the same validated fixture data as the overview page, wraps
+  `InventoryExplorer` in `<Suspense>` (required by Next.js for
+  `useSearchParams` on a statically-rendered page — confirmed `/inventory`
+  still prerenders as static in the build output).
+
+### Decisions made
+
+- **All filtering/sorting is client-side over the full fixture dataset**,
+  not paginated or server-queried. The observed estate is a small, bounded
+  set (implementation.md section 1.6: "observed-estate definition," not an
+  open web index) — a client-side filter over an already-loaded array is
+  the smallest sound solution; a server round trip per filter change would
+  add latency and complexity implementation.md doesn't ask for.
+- **URL is the single source of truth for filter state**, read fresh from
+  `useSearchParams()` on every render rather than mirrored into a parallel
+  React state object — this is what makes a pasted/bookmarked filtered URL
+  actually restore correctly (verified for real below), instead of only
+  working for filters changed within the same session.
+- **Search is the one exception to "URL updates immediately on change"**:
+  the visible result list filters instantly off local input state on every
+  keystroke, but the URL write is debounced 250ms so typing doesn't spam
+  `history.replaceState` calls. Six discrete select filters don't need
+  this — a select's `onChange` already fires once per real choice, not per
+  keystroke.
+- **Six single-select dropdown filters (technical health, severity,
+  suggested action, department, portal type, assessment availability)
+  rather than multi-select checkboxes.** implementation.md section 10.3
+  doesn't ask for combining multiple values of the same filter dimension,
+  and a `<select>` is simpler to build accessibly and URL-serialize than a
+  checkbox group — smallest sound solution over speculative flexibility.
+- **Real `<table>` with a horizontal-scroll wrapper for narrow viewports**,
+  not a second, separately-maintained card layout. implementation.md
+  section 14 offers "accessible table semantics **or** explicit mobile
+  card alternative" as alternatives; a real table with `scope`, a
+  `<caption>`, and `overflow-x: auto` is both accessible and responsive
+  without duplicating every row's markup in two layouts.
+- **Portal-detail links (`/portals/[id]`) point at a page that doesn't
+  exist until Session 14**, which this same working session builds next —
+  left as real `<Link>`s rather than disabled/placeholder links, since
+  they resolve within this session's own arc.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/web run test
+ Test Files  32 passed (32)
+      Tests  250 passed (250)   # 215 from Session 12 + 24 inventoryFilters
+                                 # + 11 InventoryExplorer (component)
+
+$ pnpm lint        # exit 0, no output
+$ pnpm typecheck   # 6 workspace projects — exit 0
+$ pnpm test        # all workspaces — exit 0
+$ pnpm build       # next build — /inventory prerenders as static — exit 0
+$ pnpm format      # prettier — reformatted new files to project style
+```
+
+`InventoryExplorer.test.tsx` mocks `next/navigation` (a stateful
+`mockSearch` string + a `router.replace` spy) rather than depending on
+Next's real router internals in jsdom, and covers: URL restoration
+(`technicalHealth=unavailable` renders pre-filtered with the select
+already showing the right value), Clear-all only appearing when a filter
+is active and correctly resetting the URL, a keyboard-driven select change
+producing the right `router.replace` URL, debounced search (instant visible
+filtering, URL write after typing settles), an empty-results state with a
+working Clear-all, real table semantics (`columnheader` roles), a 300-portal
+synthetic dataset, long-string truncation (`title` attribute), and an axe
+accessibility check.
+
+Manual end-to-end / visual verification (real `next start` on the real
+fixtures directory, real browser): desktop screenshot confirms the full
+control row and table render correctly against the 6-portal fixture set.
+Navigating directly to
+`http://localhost:4021/inventory?technicalHealth=unavailable&sort=severity`
+(simulating a pasted/bookmarked shareable URL — this session's exit
+criterion) correctly pre-filtered to "1 of 6 portals" (the transport
+portal), showed the "Technical health" select already set to "Unavailable"
+and "Sort by" already set to "Highest severity," and showed a working
+"Clear all" button — confirming URL restoration for real, not only in the
+mocked component test. (Driving the native `<select>` dropdowns via
+coordinate clicks did not work reliably in this sandbox's browser
+automation — OS-native select menus aren't part of the page DOM the
+automation tool can click into; verified the same behavior instead via
+direct URL navigation and the mocked-router component tests above, which
+exercise the identical `updateFilters`/`searchParamsToFilters` code path a
+real select's `onChange` would call.)
+
+### Known limitations (deferred, explicit)
+
+- **`/portals/[portalId]` does not exist yet as of this file being
+  written** — Session 14, next in this session's own arc, builds it; the
+  inventory's row links are real and will resolve once that lands.
+- **No column sorting by clicking a `<th>`** — sorting is a single "Sort
+  by" dropdown covering the four orderings implementation.md section 14
+  actually asks for (name/health/severity/last-checked), not per-column
+  click-to-sort, which the spec doesn't request and which would need a
+  more complex (asc/desc per column) URL-state shape than this session's
+  filters need.
+- **Severity filter matches "has any finding at this severity," not only
+  "this is the highest severity present."** Documented in the function's
+  own comment in `inventoryFilters.ts`; chosen because a portal with a
+  critical finding buried under other findings should still surface under
+  a "Critical" filter, not just the ones where critical happens to be the
+  worst thing found.
+
+### Next session prerequisites (Session 14 — Portal evidence pages)
+
+- `data/fixtures/portal-assessments.json`'s 6 portals (from Session 12)
+  already cover every `technicalHealth` value, a multi-finding portal
+  (`portal-agri-farmers-welfare`... actually see `portal-transport-assam`
+  for critical, `portal-education-assam` for `not_assessable`), a
+  zero-finding portal (`portal-health-assam`), and a `directory_mismatch`
+  finding (`portal-panchayat-assam`) — this should already be enough
+  fixture variety for Session 14's "portal with many findings, no
+  findings, not assessable" test list without extending the file further,
+  unless a specific missing case (e.g. multiple evidence sources on one
+  finding) turns out to be needed.
+- `InventoryExplorer`'s row links already point at `/portals/[portalId]`
+  using each assessment's `portal.id` — Session 14's dynamic route segment
+  must be named `portalId` to match, and should use
+  `generateStaticParams` sourced from the same `getFixturePortalAssessments()`
+  fixture reader (matching how `/inventory` and `/` already load data) so
+  every linked portal ID actually resolves.
+- `StatusBadge`, `SeverityMarker`, `SUGGESTED_ACTION_VISUALS`,
+  `EvidenceCallout`, `EmptyState` remain the components to reuse for
+  findings/evidence display — do not re-derive a second presentation for
+  severity/health/action.
