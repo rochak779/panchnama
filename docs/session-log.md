@@ -3540,3 +3540,146 @@ false`): header wraps to wordmark row + nav row, banner stacks its
 - `PRODUCT.md`/`DESIGN.md` are the durable references for user/purpose
   and visual-system decisions — read them before making a new token or
   component-shape decision rather than re-deriving one.
+
+## Session 12 — Assam overview
+
+**Goal:** Let a first-time visitor understand the audit and identify
+priority areas quickly (implementation.md section 14 / section 10.2).
+
+### Files changed
+
+- `apps/web/src/lib/overviewSummary.ts` (+ test, new) — pure, unit-tested
+  derivations from `PublishedPortalAssessment[]`: `countByTechnicalHealth`,
+  `countBySeverity`, `countBySuggestedAction`, `topPriorityFindings`
+  (reviewed findings only, sorted critical→significant→advisory then most
+  recently observed), `directoryMismatchFindings`, `notAssessablePortals`.
+  Every number on the page traces back to one of these functions and, from
+  there, to a real field on a real published record — nothing is invented
+  or blended into a composite score.
+- `apps/web/src/components/overview/OverviewContent.tsx` (+ test, new) —
+  the overview's section content (technical-health/severity/suggested-action
+  count grids, priority findings, directory mismatch summary, limitations
+  callout, entry-point links to inventory/methodology/exports), factored
+  out of `app/page.tsx` specifically so it can be rendered directly against
+  synthetic assessment arrays in tests — including an empty one, which the
+  real fixture data (now that it has real findings) no longer exercises.
+- `apps/web/src/app/page.tsx` (rewritten) — now the real Assam overview:
+  hero proposition + audit-scope paragraph, then `<OverviewContent>` fed
+  real fixture data. Session 11's placeholder portal-grid content is gone.
+- `apps/web/src/app/page.test.tsx` (rewritten) — asserts against the real
+  fixture data: derived counts per technical-health/severity value, no
+  composite score anywhere in the rendered output, priority-findings
+  ordering, the directory-mismatch finding, the not-assessable portal's
+  named reason, the partial-run callout, and the three entry-point links.
+- `apps/web/src/app/overview.module.css` (new); `apps/web/src/app/page.module.css`
+  (deleted, superseded).
+- `data/fixtures/portal-assessments.json` — extended from 2 to 6 portals
+  (per Session 11's own documented next-session prerequisite) to exercise
+  the real overview page's sections: added `portal-transport-assam`
+  (`unavailable`, one `critical` availability finding), `portal-education-assam`
+  (`not_assessable`, blocked by a CAPTCHA challenge — exercises the
+  not-assessable/limitations path), `portal-health-assam` (`healthy`, zero
+  findings — exercises the "no findings for this portal" path without
+  breaking the page), `portal-panchayat-assam` (`healthy` with one
+  `directory_mismatch` finding — exercises the directory mismatch summary,
+  which had no real example before this session).
+- `data/fixtures/audit-run.json` — `portalCount`/`portalsSucceeded`/
+  `portalsFailed`/`portalsPartial` updated to match the 6-portal set
+  (3 succeeded, 2 partial, 1 failed — still a mixed/`"partial"` run,
+  satisfying `auditRunSchema`'s derivation invariant); `enabledChecks` and
+  `limitations` extended to mention the new checks/CAPTCHA block.
+
+### Decisions made
+
+- **Derivation logic lives in a plain, framework-free `lib/overviewSummary.ts`,
+  not inline in the page or scattered across components.** Keeps every
+  number unit-testable against synthetic data (including the empty-dataset
+  case) without rendering React, and guarantees the page can't drift from
+  the underlying per-portal fields — a change to a fixture's counts changes
+  the page's counts automatically, never the other way around.
+- **`OverviewContent` is a separate component from `app/page.tsx`.** The
+  page's own job (load fixtures, own the hero copy) is now small; the
+  section content takes `assessments`/`auditRun` as props, which is what
+  lets `OverviewContent.test.tsx` render a genuinely empty dataset and a
+  synthetic partial/not-assessable one — implementation.md section 14's
+  own "no-findings dataset" and "partial datasets" test requirements for
+  this session, which the real fixture data (now populated with real
+  findings) no longer forces through those code paths on its own.
+- **Fixture data extended rather than a second fixture source invented**,
+  per Session 11's explicit prerequisite note and AGENTS.md's shared-schema
+  rule. All four `technicalHealth` values and a real `directory_mismatch`
+  finding now exist in `data/fixtures/portal-assessments.json`, so
+  `page.test.tsx` exercises real (not mocked) data end to end.
+- **"Suggested actions" section reuses `SUGGESTED_ACTION_VISUALS`** (already
+  built in Session 11's `statusTokens.ts` but unused until now) rather than
+  a new label map — matches DESIGN.md's "add new status tones to
+  statusTokens.ts, never invent a one-off" rule, even though this session
+  only consumed an existing entry.
+- **No per-finding or per-portal deep link to `/inventory` or a portal
+  detail page from the overview.** Session 13 (inventory) and Session 14
+  (portal evidence pages) don't exist yet as this session starts; the
+  overview's own entry points are exactly the three implementation.md
+  section 10.2 asks for (inventory, methodology, exports) as plain
+  section-level links, not per-finding deep links that would 404.
+- **Real-browser verification used a same-origin `<iframe>` at 320px width**
+  (same workaround Session 11 recorded — `resize_window` does not change
+  `window.innerWidth` in this sandbox) against a real `next start` build
+  with `PANCHNAMA_FIXTURES_DIR` pointed at the real fixtures directory:
+  confirmed the header wraps, the count-tile grids collapse to one column,
+  and no section overflows at 320px.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/web run test
+ Test Files  30 passed (30)
+      Tests  215 passed (215)   # 200 from Session 11 + 15 new this session
+                                 # (13 overviewSummary, 7 OverviewContent minus
+                                 #  5 replaced page.test.tsx cases netting +2,
+                                 #  see full file list above for the actual mix)
+
+$ pnpm lint        # exit 0, no output
+$ pnpm typecheck   # 6 workspace projects — exit 0
+$ pnpm test        # all workspaces — exit 0
+$ pnpm build       # next build (static "/", dynamic API routes, /icon.svg) — exit 0
+$ pnpm format      # prettier — reformatted new files to project style
+```
+
+Manual end-to-end / visual verification (real `next start` on the real
+fixtures directory, real browser): desktop screenshot confirms hero copy,
+technical-health/severity/suggested-action count grids with correct
+numbers, the critical transport-portal finding leading "Priority
+findings," the panchayat directory-mismatch finding in its own section,
+the education portal's CAPTCHA-block reason named in "Limitations," and
+the three entry-point links, footer through to end of page. 320px-wide
+same-origin-iframe screenshot confirms no horizontal overflow and single-
+column reflow of every count grid.
+
+### Known limitations (deferred, explicit)
+
+- **`/inventory`, `/methodology`, `/exports` links still 404** — Sessions
+  13 (inventory), 16 (methodology/exports) build those pages; this is the
+  same documented, expected gap Session 11 already noted, now one session
+  closer to resolved.
+- **Priority findings are capped at 5 (`topPriorityFindings(assessments, 5)`)**
+  with no "see all" affordance — implementation.md section 10.2 asks for
+  "top priority findings," not the full list, and the full list of every
+  finding per portal belongs to Session 14's portal evidence pages, not a
+  second full list duplicated here.
+- **No JavaScript interactivity (no client-side filtering/sorting) on this
+  page** — not asked for by this session; Session 13 (inventory) is where
+  implementation.md section 14 puts search/filter/sort.
+
+### Next session prerequisites (Session 13 — Inventory exploration)
+
+- `src/lib/overviewSummary.ts`'s pattern (pure derivation functions,
+  separately unit-tested from the React layer) is the one to follow for
+  inventory search/filter/sort logic, not inline component state.
+- `data/fixtures/portal-assessments.json` now has 6 portals with varied
+  `department`, `portalType`, `technicalHealth`, and `continuingRole`
+  values — enough to exercise real filter combinations without inventing a
+  seventh fixture source; extend it further only if a specific missing
+  case (e.g. a portal with no `department`) is needed for a test.
+- `StatusBadge`/`SeverityMarker`/`SUGGESTED_ACTION_VISUALS` are ready for
+  reuse in inventory table/card cells — do not re-derive a second status
+  label map.

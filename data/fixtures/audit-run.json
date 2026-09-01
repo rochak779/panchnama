@@ -12,10 +12,19 @@
   "sourceRegistryDigest": "sha256:1a3b...digest",
   "crawlPolicyDigest": "sha256:2c4d...digest",
   "checkConfigDigest": "sha256:3e5f...digest",
-  "enabledChecks": ["availability.unavailable.v1", "redirect.cross-domain.v1"],
-  "portalCount": 2,
-  "portalsSucceeded": 1,
-  "portalsFailed": 0,
-  "portalsPartial": 1,
-  "limitations": ["Browser fallback disabled for this run."]
+  "enabledChecks": [
+    "availability.unavailable.v1",
+    "redirect.cross-domain.v1",
+    "crawl.blocked.v1",
+    "directory.mismatch.v1"
+  ],
+  "portalCount": 6,
+  "portalsSucceeded": 3,
+  "portalsFailed": 1,
+  "portalsPartial": 2,
+  "limitations": [
+    "Browser fallback disabled for this run.",
+    "Single-region vantage point for all availability checks.",
+    "One portal could not be fairly assessed after a CAPTCHA challenge blocked further automated access."
+  ]
 }

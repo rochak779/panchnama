@@ -128,5 +128,240 @@
       }
     ],
     "lastCheckedAt": "2026-09-15T02:10:00Z"
+  },
+  {
+    "schemaVersion": "1.0.0",
+    "portal": {
+      "id": "portal-transport-assam",
+      "schemaVersion": "1.0.0",
+      "name": "Assam Transport Department Portal",
+      "canonicalUrl": "https://transport.assam.gov.in",
+      "alternateUrls": [],
+      "hostnames": ["transport.assam.gov.in"],
+      "description": "Vehicle registration and licensing information portal.",
+      "department": "Department of Transport",
+      "geography": "assam",
+      "portalType": "transactional",
+      "officialStatus": "verified",
+      "sourceRefs": ["src-assam-directory-2026"],
+      "discovery": [
+        {
+          "discoveredAt": "2026-08-01T06:07:00Z",
+          "discoveredFromUrl": "https://assam.gov.in/directory",
+          "discoveryMethod": "listed"
+        }
+      ],
+      "tags": ["transport"]
+    },
+    "auditRunId": "assam-2026-09-15-r1",
+    "technicalHealth": "unavailable",
+    "continuingRole": "not_reviewed",
+    "suggestedAction": "repair",
+    "criticalFindingCount": 1,
+    "significantFindingCount": 0,
+    "advisoryFindingCount": 0,
+    "crawlCoverage": {
+      "pagesAttempted": 3,
+      "pagesObserved": 0,
+      "linksChecked": 0,
+      "browserFallbackUsed": false,
+      "coverageNote": "Every attempt across three spaced checks failed to connect."
+    },
+    "reviewedFindings": [
+      {
+        "id": "finding-availability-0002",
+        "schemaVersion": "1.0.0",
+        "runId": "assam-2026-09-15-r1",
+        "portalId": "portal-transport-assam",
+        "ruleId": "availability.unavailable.v1",
+        "category": "availability",
+        "title": "Portal entry point unreachable",
+        "summary": "Connection refused on all three spaced attempts on 2026-09-15; not a bot block.",
+        "severity": "critical",
+        "confidence": "high",
+        "checkStatus": "fail",
+        "reviewStatus": "reviewed",
+        "firstObservedAt": "2026-09-15T01:00:00Z",
+        "lastObservedAt": "2026-09-15T02:15:00Z",
+        "evidenceRefs": ["evidence-http-0003"],
+        "affectedUrls": ["https://transport.assam.gov.in"],
+        "suggestionRuleId": "suggestion.repair.v1",
+        "suggestedAction": "repair",
+        "reviewerRationale": "Connection refused, not a timeout or CAPTCHA; ruled out as a transient block.",
+        "limitations": ["Single-region vantage point."]
+      }
+    ],
+    "lastCheckedAt": "2026-09-15T02:15:00Z"
+  },
+  {
+    "schemaVersion": "1.0.0",
+    "portal": {
+      "id": "portal-education-assam",
+      "schemaVersion": "1.0.0",
+      "name": "Assam Education Department Portal",
+      "canonicalUrl": "https://education.assam.gov.in",
+      "alternateUrls": [],
+      "hostnames": ["education.assam.gov.in"],
+      "description": "School and scholarship information portal.",
+      "department": "Department of Education",
+      "geography": "assam",
+      "portalType": "information",
+      "officialStatus": "verified",
+      "sourceRefs": ["src-assam-directory-2026"],
+      "discovery": [
+        {
+          "discoveredAt": "2026-08-01T06:08:00Z",
+          "discoveredFromUrl": "https://assam.gov.in/directory",
+          "discoveryMethod": "listed"
+        }
+      ],
+      "tags": ["education"]
+    },
+    "auditRunId": "assam-2026-09-15-r1",
+    "technicalHealth": "not_assessable",
+    "continuingRole": "not_reviewed",
+    "suggestedAction": "manual_assessment",
+    "criticalFindingCount": 0,
+    "significantFindingCount": 0,
+    "advisoryFindingCount": 1,
+    "crawlCoverage": {
+      "pagesAttempted": 4,
+      "pagesObserved": 1,
+      "linksChecked": 2,
+      "browserFallbackUsed": false,
+      "coverageNote": "Homepage returned a CAPTCHA challenge after the first request; automated access could not fairly assess this portal this run."
+    },
+    "reviewedFindings": [
+      {
+        "id": "finding-coverage-0001",
+        "schemaVersion": "1.0.0",
+        "runId": "assam-2026-09-15-r1",
+        "portalId": "portal-education-assam",
+        "ruleId": "crawl.blocked.v1",
+        "category": "crawl_coverage",
+        "title": "Automated access blocked by a challenge page",
+        "summary": "A CAPTCHA challenge prevented further automated pages from being observed; needs a manual check.",
+        "severity": "advisory",
+        "confidence": "low",
+        "checkStatus": "not_assessable",
+        "reviewStatus": "not_assessable",
+        "firstObservedAt": "2026-09-15T02:20:00Z",
+        "lastObservedAt": "2026-09-15T02:20:00Z",
+        "evidenceRefs": ["evidence-http-0004"],
+        "affectedUrls": ["https://education.assam.gov.in"],
+        "suggestionRuleId": "suggestion.manual-assessment.v1",
+        "suggestedAction": "manual_assessment",
+        "reviewerRationale": "Bot-protection challenge detected; classified separately from downtime per methodology.",
+        "limitations": [
+          "Automated crawl blocked after the first request; a human check has not yet been done."
+        ]
+      }
+    ],
+    "lastCheckedAt": "2026-09-15T02:20:00Z"
+  },
+  {
+    "schemaVersion": "1.0.0",
+    "portal": {
+      "id": "portal-health-assam",
+      "schemaVersion": "1.0.0",
+      "name": "Assam Health Department Portal",
+      "canonicalUrl": "https://health.assam.gov.in",
+      "alternateUrls": [],
+      "hostnames": ["health.assam.gov.in"],
+      "description": "Public health scheme and hospital information portal.",
+      "department": "Department of Health and Family Welfare",
+      "geography": "assam",
+      "portalType": "information",
+      "officialStatus": "verified",
+      "sourceRefs": ["src-assam-directory-2026"],
+      "discovery": [
+        {
+          "discoveredAt": "2026-08-01T06:09:00Z",
+          "discoveredFromUrl": "https://assam.gov.in/directory",
+          "discoveryMethod": "listed"
+        }
+      ],
+      "tags": ["health"]
+    },
+    "auditRunId": "assam-2026-09-15-r1",
+    "technicalHealth": "healthy",
+    "continuingRole": "distinct",
+    "suggestedAction": "maintain",
+    "criticalFindingCount": 0,
+    "significantFindingCount": 0,
+    "advisoryFindingCount": 0,
+    "crawlCoverage": {
+      "pagesAttempted": 7,
+      "pagesObserved": 7,
+      "linksChecked": 25,
+      "browserFallbackUsed": false,
+      "coverageNote": "Homepage and six linked pages observed without error."
+    },
+    "reviewedFindings": [],
+    "lastCheckedAt": "2026-09-15T02:25:00Z"
+  },
+  {
+    "schemaVersion": "1.0.0",
+    "portal": {
+      "id": "portal-panchayat-assam",
+      "schemaVersion": "1.0.0",
+      "name": "Assam Panchayat and Rural Development Portal",
+      "canonicalUrl": "https://prd.assam.gov.in",
+      "alternateUrls": [],
+      "hostnames": ["prd.assam.gov.in"],
+      "description": "Panchayat and rural development scheme portal.",
+      "department": "Department of Panchayat and Rural Development",
+      "geography": "assam",
+      "portalType": "information",
+      "officialStatus": "verified",
+      "sourceRefs": ["src-assam-directory-2026"],
+      "discovery": [
+        {
+          "discoveredAt": "2026-08-01T06:10:00Z",
+          "discoveredFromUrl": "https://assam.gov.in/directory",
+          "discoveryMethod": "listed"
+        }
+      ],
+      "tags": ["rural-development"]
+    },
+    "auditRunId": "assam-2026-09-15-r1",
+    "technicalHealth": "healthy",
+    "continuingRole": "distinct",
+    "suggestedAction": "maintain",
+    "criticalFindingCount": 0,
+    "significantFindingCount": 0,
+    "advisoryFindingCount": 1,
+    "crawlCoverage": {
+      "pagesAttempted": 5,
+      "pagesObserved": 5,
+      "linksChecked": 15,
+      "browserFallbackUsed": false,
+      "coverageNote": "Homepage and four linked pages observed without error."
+    },
+    "reviewedFindings": [
+      {
+        "id": "finding-directory-mismatch-0001",
+        "schemaVersion": "1.0.0",
+        "runId": "assam-2026-09-15-r1",
+        "portalId": "portal-panchayat-assam",
+        "ruleId": "directory.mismatch.v1",
+        "category": "directory_mismatch",
+        "title": "Directory entry links to a different destination",
+        "summary": "The state directory lists this portal at a hostname that redirects to a different, unrelated service.",
+        "severity": "advisory",
+        "confidence": "medium",
+        "checkStatus": "warning",
+        "reviewStatus": "reviewed",
+        "firstObservedAt": "2026-09-15T02:30:00Z",
+        "lastObservedAt": "2026-09-15T02:30:00Z",
+        "evidenceRefs": ["evidence-note-0005"],
+        "affectedUrls": ["https://prd.assam.gov.in", "https://assam.gov.in/directory"],
+        "suggestionRuleId": "suggestion.manual-assessment.v1",
+        "suggestedAction": "manual_assessment",
+        "reviewerRationale": "Directory-listed URL and canonical portal URL disagree; ownership needs manual verification.",
+        "limitations": []
+      }
+    ],
+    "lastCheckedAt": "2026-09-15T02:30:00Z"
   }
 ]

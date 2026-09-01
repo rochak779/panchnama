@@ -1,19 +1,26 @@
 import { PRODUCT_DISCLAIMER, PRODUCT_NAME } from "@/lib/constants";
-import { getFixturePortalAssessments } from "@/lib/publishedFixtures";
-import { EvidenceCallout } from "@/components/EvidenceCallout";
-import { StatusBadge } from "@/components/status/StatusBadge";
-import styles from "./page.module.css";
+import { getFixtureAuditRun, getFixturePortalAssessments } from "@/lib/publishedFixtures";
+import { OverviewContent } from "@/components/overview/OverviewContent";
+import styles from "./overview.module.css";
 
 /**
- * Session 11 scope note: this is the design-system foundation, not the
- * real Assam overview page. implementation.md section 14 assigns the full
- * overview information architecture (hero proposition, coverage summary,
- * priority findings, directory mismatch summary, limitations callout) to
- * Session 12. This page exists to prove the mechanism end to end — real
- * layout, real components, real (fixture) data, a real static build —
- * without building content that belongs to a later session.
+ * Session 12 ("Assam overview") — implementation.md section 14. Lets a
+ * first-time visitor answer "what was audited, when, the major result, and
+ * where to investigate next" (this session's exit criterion) without
+ * leaving this page. Every number below is derived from the same validated
+ * `data/fixtures/*.json` records the build already loads — nothing here is
+ * invented, and per implementation.md section 10.2 there is deliberately
+ * no composite score, vanity chart, or ranking.
+ *
+ * The audit date/coverage/status/methodology-and-download links already
+ * live in the persistent `AuditContextBanner` (root layout, Session 11) —
+ * this page does not re-derive that summary, per DESIGN.md's "Do" list.
+ * The section content itself lives in `OverviewContent` so it can be
+ * exercised directly in tests against synthetic (including empty)
+ * assessment data — see `OverviewContent.test.tsx`.
  */
 export default function HomePage() {
+  const auditRun = getFixtureAuditRun();
   const assessments = getFixturePortalAssessments();
 
   return (
@@ -22,38 +29,17 @@ export default function HomePage() {
         <div className={styles.hero}>
           <h1>{PRODUCT_NAME}</h1>
           <p>{PRODUCT_DISCLAIMER}</p>
+          <p>
+            This case study observed {auditRun.portalCount} Assam government web portal
+            {auditRun.portalCount === 1 ? "" : "s"} and checked each one for basic technical health
+            — whether it is reachable, whether it uses HTTPS correctly, and whether its links work —
+            plus signals a human reviewer can use to judge staleness, directory accuracy, and
+            possible overlap between portals. It does not rank departments, and it never combines
+            these separate checks into one blended number.
+          </p>
         </div>
 
-        <section className={styles.section} aria-labelledby="portals-heading">
-          <h2 id="portals-heading">Portals in the observed estate</h2>
-          <ul className={styles.portalGrid}>
-            {assessments.map((assessment) => (
-              <li key={assessment.portal.id} className={styles.portalCard}>
-                <h3>
-                  <a href={assessment.portal.canonicalUrl}>{assessment.portal.name}</a>
-                </h3>
-                {assessment.portal.department ? (
-                  <p className={styles.portalDept}>{assessment.portal.department}</p>
-                ) : null}
-                <StatusBadge status={assessment.technicalHealth} />
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <EvidenceCallout
-          heading="About this build"
-          meta={<span>data/fixtures/portal-assessments.json — Session 11</span>}
-        >
-          The portals above are loaded from validated local fixtures, not a real audit. Real Assam
-          inventory, crawl, and review data does not exist in this repository yet (Session 17+).
-        </EvidenceCallout>
-
-        <p className={styles.placeholderNote}>
-          The full Assam overview (coverage summary, priority findings, directory mismatch summary),
-          website inventory, portal detail pages, and methodology are built in Sessions 12–16 — see{" "}
-          <code>implementation.md</code> section 14.
-        </p>
+        <OverviewContent auditRun={auditRun} assessments={assessments} />
       </div>
     </main>
   );
