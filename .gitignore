@@ -42,6 +42,11 @@ data/evidence/*
 # Database
 *.pgdata/
 
+# Session 16: build-generated public export files (apps/web/scripts/build-exports.ts,
+# run by `apps/web`'s "build" script before `next build`) — regenerated from
+# data/fixtures/*.json on every build, not source.
+apps/web/public/exports/
+
 # Impeccable design-skill working state (review screenshots, decision
 # mocks) — ephemeral tool output, not project source. PRODUCT.md/DESIGN.md
 # at the repo root are committed as normal.
