@@ -3037,3 +3037,234 @@ survived the stop/restart cycle — confirming `pnpm db:down` (a plain
   `.gitkeep` files) — Session 10's experience API will still only be
   testable against fixture/test portal ids until Session 17+ produces real
   inventory/crawl/review data.
+
+---
+
+## Session 10 — Application runtime, anonymous experience API, and abuse controls
+
+**Goal:** Create the safe server-side contract for submitting structured
+experiences and reading approved experiences (implementation.md section
+9.6-9.8).
+
+### Starting state
+
+Most of this session's implementation (`apps/web/src/lib/*`, the `POST
+/api/experiences` route, and `packages/database`'s `duplicates.ts` +
+`countEventsInWindow`'s `now` parameter) already existed, uncommitted, in
+the working tree at the start of this session — written to the same
+standard as prior sessions (extensive doc comments, section-9.6-literal
+step ordering documented and justified). What this session actually did
+was audit that code against the spec and exit criteria, find and fix the
+gaps and bugs below, add the test suite (previously nonexistent), and
+verify/commit.
+
+### Gaps found and closed
+
+- **No `GET /api/portals/:portalId/experiences` route.** The core logic
+  (`handleReadPortalExperiences` in `experienceReads.ts`) existed and was
+  already "injectable for tests," but no `route.ts` wired it up. Added
+  `apps/web/src/app/api/portals/[portalId]/experiences/route.ts` (Node.js
+  runtime, same reasoning as the submission route).
+- **No privacy/moderation policy document**, despite `abuseKey.ts` already
+  referencing one (`docs/experience-privacy-and-moderation.md` did not
+  exist). Added it: privacy-pattern-flag explanation, the full section 9.7
+  moderation policy, retention policy, and the section 9.8-required
+  "contact route for requesting removal... without requiring an account" —
+  documented as an explicit placeholder procedure (no real inbox exists
+  yet; no deployed instance to receive requests), not a finished feature.
+- **Zero tests existed** for any of the ~1,100 lines of new `apps/web`
+  code or the new `packages/database` additions. Added 16 new test files
+  (113 new `apps/web` tests, 10 new `packages/database` integration tests)
+  covering every behavior implementation.md section 9.6's "Tests:" line
+  calls for: schema/portal validation, honeypot, rate limit (global and
+  per-portal), origin protection, privacy flags, body size, safe logging
+  (no raw error/IP/hash ever reaches a response body), approved-only reads,
+  pagination (including clamping and the "never reads an
+  include-unapproved-style parameter" property), aggregates, database
+  outage (both routes), and duplicate detection.
+
+### Real bugs found (by writing/running the above)
+
+- **Next.js build was broken.** Every new `apps/web/src/lib/*.ts` file
+  imported its siblings with a `.js` extension (the Node16/NodeNext
+  convention correctly used by `packages/audit-cli`/`packages/database`,
+  which run via `tsc`/`tsx`). `apps/web`'s `tsconfig.json` uses
+  `"moduleResolution": "Bundler"`, which lets `tsc --noEmit` accept this
+  pattern for type-checking (so `pnpm typecheck` was silently green) — but
+  Next.js's own webpack build does not resolve a `./foo.js` specifier to a
+  `./foo.ts` source file, so `pnpm build` failed outright on every import
+  in `experienceSubmission.ts`, `experienceReads.ts`, and `requestSchema.ts`.
+  This was a real, previously-undiscovered break — `pnpm build` had
+  apparently never been run to completion against this session's code
+  before now. Fixed by dropping the `.js` extension from every local
+  relative import in `apps/web/src/lib/*.ts` (Vite/Vitest resolves both
+  forms; only webpack needed the fix). Verified: `pnpm build` now produces
+  both API routes as dynamic (`ƒ`) entries alongside the existing static
+  home page.
+- **`INDIAN_MOBILE_PATTERN` false-negative on the conventional 5+5 grouping.**
+  The original regex only allowed an optional separator at fixed 3-3-4
+  digit positions (`[6-9]\d{2}[-\s]?\d{3}[-\s]?\d{4}`), so a number written
+  in the actually-conventional Indian printed format ("98765 43210", a 5+5
+  split) never matched — a real privacy-flag miss the requirement in
+  section 9.6 exists specifically to catch. Fixed to
+  `[6-9](?:[-\s]?\d){9}`, which allows a single separator between any two
+  digits anywhere in the 10-digit run (still bounded by digit-boundary
+  lookaround), catching 3-3-4, 5-5, and unseparated forms alike. Caught by
+  `privacyFlags.test.ts`'s "flags an Indian mobile number in plain and
+  formatted forms" test.
+- No other functional bugs found; two additional test-authoring mistakes
+  of my own (destructuring `countEventsInWindow`'s `db` first argument as
+  if it were the `input` second argument in a mock; a missing `override`
+  modifier on a test-only Error subclass under this repo's strict
+  compiler options) were caught by the tests/typecheck themselves and
+  fixed — not product bugs.
+
+### Decisions (from the pre-existing code, reviewed and confirmed correct)
+
+- **Origin/CSRF via same-origin `Origin`/`Referer` check, no token.** There
+  is no session/authentication to protect, so the actual threat is a
+  third-party page silently driving cross-origin abuse traffic; a
+  same-origin check is right-sized for that threat model. Documented
+  limitation: does not stop a non-browser client that fabricates a
+  matching header pair, which is acceptable given the layered honeypot +
+  rate-limit + duplicate-detection defense.
+- **Duplicate detection's "same abuse key" gate is approximated**, not an
+  exact join, because `experience_submissions` has no abuse-key column
+  (a deliberate Session 9 non-change). The route only runs the duplicate
+  candidate lookup at all when the requester's own abuse key already has
+  an event for this portal inside the 10-minute window — a documented,
+  narrow gap (shared-NAT/proxy submitters could theoretically be
+  cross-flagged) rather than a silently accepted trust boundary.
+- **`taskType` options served as a static module**, not a
+  `GET /api/portals/:portalId/experience-options` route — implementation.md
+  section 9.6 explicitly allows this, and the vocabulary is portal-agnostic
+  today.
+- **Portal existence validated by reading `data/published/current` from
+  disk** (read-only, never written to by this session), not a database
+  table or hard FK — matches section 5.14's "published audit data is the
+  single source of truth for which portals exist" and section 9.5's
+  "equivalent application validation" allowance. Empty/missing/malformed
+  published output is treated uniformly as "not available yet," never a
+  crash.
+- **Rate-limit and duplicate-window arithmetic is genuinely rolling**, not
+  calendar-bucketed (per section 9.6's explicit requirement), verified
+  directly in `abuseKeys.integration.test.ts` by placing rows exactly
+  24h+1s and 23h59m before a fixed `now`.
+- **`apps/web/vitest.config.ts` added** (did not exist before this
+  session) purely to mirror `tsconfig.json`'s `"@/*"` path alias for
+  Vitest, since Next's own build resolves that mapping natively but Vitest
+  does not read `tsconfig.json` `paths` on its own; only the two thin
+  `route.ts` wrapper tests need it.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/web run test
+ Test Files  16 passed (16)
+      Tests  113 passed (113)
+
+$ pnpm --filter @panchnama/database run test   # against real local PostgreSQL 16
+ Test Files  10 passed (10)
+      Tests  40 passed (40)          # 10 new (5 duplicates, 5 abuse-key rolling-window)
+
+$ pnpm lint        # eslint . — exit 0, no output
+$ pnpm typecheck   # 6 workspace projects — exit 0
+$ pnpm test        # all workspaces — 559 tests total, all passed
+$ pnpm build       # next build now includes both API routes as dynamic (ƒ) entries; 5 packages (tsc) — exit 0
+$ pnpm format      # reformatted the session's new/pre-existing-uncommitted files to project style; no logic change
+```
+
+### Manual end-to-end demonstration (exit-criteria walkthrough)
+
+Real `next start`, real local PostgreSQL (migrated dev database), a
+temporary `PANCHNAMA_DATA_DIR` pointing at a hand-written one-portal
+published fixture (`data/published/` itself remains empty/`.gitkeep`-only
+in the repo — Session 17+'s job):
+
+```
+$ curl -X POST /api/experiences  (no published inventory yet)
+{"status":"unavailable","message":"No published inventory is available yet..."}
+
+$ curl -X POST /api/experiences  (cross-origin)
+{"status":"forbidden","message":"Cross-origin requests are not allowed on this endpoint."}
+
+$ curl -X POST /api/experiences  (honeypot filled)
+{"status":"pending","message":"Thank you. Your experience has been submitted for review..."}
+# — identical-looking accepted response; nothing written to the database.
+
+# with a temporary one-portal published fixture in place:
+$ curl -X POST /api/experiences  (valid, freeText contains a 10-digit number)
+{"status":"pending", ...}
+$ curl -X POST /api/experiences  (2nd submission, same portal)
+{"status":"pending", ...}
+$ curl -X POST /api/experiences  (3rd submission, same portal, within 24h)
+{"status":"rate_limited","message":"Too many submissions...","retryAfterSeconds":3600}
+
+$ curl /api/portals/portal-agri-assam/experiences   (before moderation)
+{"total":0,"items":[], ...}                          # invisible until approved
+
+$ pnpm experiences:queue
+2 submission(s) awaiting moderation:
+  ...preview: Great site, my number is 9876543210 if you need to reach me
+  ...preview: Site was down for me
+
+$ pnpm experiences:moderate --id <id> --decision approve
+
+$ curl /api/portals/portal-agri-assam/experiences   (after moderation)
+{"total":1,"items":[{"submissionId":"...","publicText":"Site was down for me", ...}],
+ "summary":{"approvedExperienceCount":1, ...}}
+```
+
+The submission never containing the flagged phone number was left pending
+(a real moderator would see the `possible_indian_mobile_number` flag via
+the queue and redact before approving) — demonstrating the flag-not-reject
+behavior for real. Demo data (submissions, moderation rows, abuse-key
+events) was truncated from the dev database afterward; no demo data or
+temporary fixture directory was committed.
+
+### Known limitations (deferred, explicit)
+
+- **CI still does not provision a Postgres service** (unchanged from
+  Session 9) — `packages/database`'s (now larger) integration test suite
+  continues to skip, not run, in CI until that infra exists.
+- **No frontend form exists yet** — this session is API-only, as scoped.
+  Session 11's form must render the honeypot field
+  (`requestSchema.ts`'s `HONEYPOT_FIELD_NAME`, `"website"`) visually
+  hidden and unreachable by tab order, and should link to
+  `docs/experience-privacy-and-moderation.md` rather than restate it.
+- **The removal/contact procedure is a documented placeholder, not a
+  working channel** — no real contact email exists yet (see
+  `docs/experience-privacy-and-moderation.md`'s "Requesting removal"
+  section). A later session or the deployment session must fill this in
+  before any public launch.
+- **`GET /api/portals/:portalId/experience-options` was not built** —
+  deliberately, per section 9.6's explicit allowance to serve options
+  statically instead. If a future session needs per-portal-varying
+  options, this is where that route would go.
+- **The duplicate-detection "same abuse key" approximation** (see
+  Decisions above) remains a documented, narrow gap, not a schema change —
+  changing it would mean adding an abuse-key column to
+  `experience_submissions`, which this session deliberately did not do.
+- **This session's manual demonstration used a temporary, hand-written
+  `data/published/` fixture** (via `PANCHNAMA_DATA_DIR`), not real Assam
+  portal data — real published output still does not exist in this
+  repository (Session 17+).
+
+### Next session prerequisites (Session 11 — Frontend foundation and design system)
+
+- The Next.js app shell (`apps/web`) now has a real runtime (Node.js-
+  runtime API routes, a working `next build`/`next start`) for Session 11
+  to extend with the public scorecard UI, rather than create from scratch.
+- `apps/web/src/lib/experienceOptions.ts` (`TASK_TYPE_OPTIONS`,
+  `THEME_OPTIONS`) is ready for Session 11+'s (Session 15, per the plan)
+  submission form to import directly.
+- `apps/web/src/lib/requestSchema.ts`'s `HONEYPOT_FIELD_NAME` and the
+  `POST /api/experiences` / `GET /api/portals/:portalId/experiences`
+  contracts (request/response shapes exercised in this session's tests)
+  are the form's integration target once Session 15 builds it — Session 11
+  itself only builds layout/design-system scaffolding, not the form.
+- `docs/experience-privacy-and-moderation.md` is ready for Session 11's
+  footer/trust-surface links and Session 15's submission-form page to
+  reference.
+- The `apps/web/vitest.config.ts` `@/` alias this session added is
+  available for Session 11's component tests.

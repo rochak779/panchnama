@@ -25,13 +25,25 @@ export async function recordAbuseKeyEvent(
 }
 
 /** Counts events for a keyed hash within a rolling window, optionally
- * scoped to one portal. A future rate limiter calls this twice: once
- * without `portalId` (global 24h cap) and once with it (per-portal cap). */
+ * scoped to one portal. Session 10's rate limiter calls this twice: once
+ * without `portalId` (global 24h cap) and once with it (per-portal cap),
+ * and also with a fractional `sinceHours` (e.g. 10/60) for its 10-minute
+ * duplicate-detection abuse-key gate — this function's rolling-window
+ * arithmetic is not hour-granular, so a fractional value is exact, not an
+ * approximation.
+ *
+ * `now` (Session 10 addition, optional, defaults to `new Date()`) lets a
+ * caller pin the "current" instant instead of calling `Date.now()`
+ * internally, so tests can prove a true rolling window (e.g. an event
+ * 24h+1s before `now` does not count, one 23h59m before `now` does) without
+ * depending on wall-clock timing. This is a backward-compatible signature
+ * change only — every existing call site that omits `now` behaves exactly
+ * as before. */
 export async function countEventsInWindow(
   db: Db,
-  input: { keyedHash: string; portalId?: string; sinceHours: number },
+  input: { keyedHash: string; portalId?: string; sinceHours: number; now?: Date },
 ): Promise<number> {
-  const since = new Date(Date.now() - input.sinceHours * 60 * 60 * 1000);
+  const since = new Date((input.now ?? new Date()).getTime() - input.sinceHours * 60 * 60 * 1000);
   const conditions = [
     eq(experienceAbuseKeys.keyedHash, input.keyedHash),
     gte(experienceAbuseKeys.createdAt, since),

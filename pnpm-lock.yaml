@@ -35,6 +35,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@panchnama/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@panchnama/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
       next:
         specifier: ^15.1.3
         version: 15.5.24(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -44,6 +50,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.8(react@19.2.8)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@types/react':
         specifier: ^19.0.2
