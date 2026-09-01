@@ -3,49 +3,39 @@ import { join } from "node:path";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { formatAuditDate } from "@/lib/formatDate";
-import { METHODOLOGY_VERSION_HISTORY } from "@/lib/methodologyContent";
+import { EXPORT_FILENAMES } from "@/lib/exportGenerators";
+import { sortedVersionHistory } from "@/lib/methodologyContent";
 import styles from "./exports.module.css";
 
 export const metadata: Metadata = { title: "Download the audit data" };
 
 /**
  * Session 16, Task 3 — implementation.md section 10.8's public download
- * page and section 10.1's "link to download the dataset" requirement.
- * The five files listed here are the exact set `apps/web/scripts/build-exports.ts`
- * (Task 1) writes into `apps/web/public/exports/`; that script has no
- * exported filename constant of its own, so this list is the second
- * authorized place the five names appear, per the task brief.
+ * page and section 10.1's "link to download the dataset" requirement. The
+ * filenames themselves come from `EXPORT_FILENAMES` (the single source of
+ * truth shared with `apps/web/scripts/build-exports.ts`); this map only
+ * supplies the human-readable description for each one.
  */
-const EXPORT_FILES = [
-  {
-    filename: "audit-summary.json",
-    description:
-      "One JSON object summarising the whole audit run: geography, dates, run status, " +
-      "methodology version, and portal counts by outcome.",
-  },
-  {
-    filename: "portals.json",
-    description:
-      "Every published portal's identity, status, and finding counts (critical/significant/advisory) " +
-      "— no individual finding detail.",
-  },
-  {
-    filename: "findings.json",
-    description:
-      "Every published finding across all portals, with severity, confidence, review status, and the " +
-      "affected URLs.",
-  },
-  {
-    filename: "assam-audit.csv",
-    description:
-      "A single spreadsheet-ready CSV with one row per portal, flattening the same status and finding " +
-      "counts into plain columns.",
-  },
-  {
-    filename: "methodology.json",
-    description: "The current methodology version and its full version history, machine-readable.",
-  },
-] as const;
+const EXPORT_FILE_DESCRIPTIONS: Record<(typeof EXPORT_FILENAMES)[number], string> = {
+  "audit-summary.json":
+    "One JSON object summarising the whole audit run: geography, dates, run status, " +
+    "methodology version, and portal counts by outcome.",
+  "portals.json":
+    "Every published portal's identity, status, and finding counts (critical/significant/advisory) " +
+    "— no individual finding detail.",
+  "findings.json":
+    "Every published finding across all portals, with severity, confidence, review status, and the " +
+    "affected URLs.",
+  "assam-audit.csv":
+    "A single spreadsheet-ready CSV with one row per portal, flattening the same status and finding " +
+    "counts into plain columns.",
+  "methodology.json": "The current methodology version and its full version history, machine-readable.",
+};
+
+const EXPORT_FILES = EXPORT_FILENAMES.map((filename) => ({
+  filename,
+  description: EXPORT_FILE_DESCRIPTIONS[filename],
+}));
 
 export interface ExportFileRow {
   filename: string;
@@ -108,9 +98,7 @@ export interface ExportsPageProps {
 
 export default function ExportsPage({ exportsDir = DEFAULT_EXPORTS_DIR }: ExportsPageProps = {}) {
   const rows = buildExportFileRows(exportsDir);
-  const versionHistory = [...METHODOLOGY_VERSION_HISTORY].sort((a, b) =>
-    b.date.localeCompare(a.date),
-  );
+  const versionHistory = sortedVersionHistory();
 
   return (
     <main id="main-content">
@@ -126,7 +114,12 @@ export default function ExportsPage({ exportsDir = DEFAULT_EXPORTS_DIR }: Export
 
         <section className={styles.section} aria-labelledby="files-heading">
           <h2 id="files-heading">Export files</h2>
-          <div className={styles.tableWrap}>
+          <div
+            className={styles.tableWrap}
+            tabIndex={0}
+            role="region"
+            aria-label="Export files table"
+          >
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -179,7 +172,12 @@ export default function ExportsPage({ exportsDir = DEFAULT_EXPORTS_DIR }: Export
             <Link href="/methodology">methodology</Link> for what each check means and how findings
             are reviewed before publication.
           </p>
-          <div className={styles.tableWrap}>
+          <div
+            className={styles.tableWrap}
+            tabIndex={0}
+            role="region"
+            aria-label="Methodology changelog table"
+          >
             <table className={styles.table}>
               <thead>
                 <tr>

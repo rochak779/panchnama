@@ -6,6 +6,7 @@ import {
   buildFindingsExport,
   buildMethodologyExport,
   buildPortalsExport,
+  EXPORT_FILENAMES,
 } from "../src/lib/exportGenerators";
 import { getFixtureAuditRun, getFixturePortalAssessments } from "../src/lib/publishedFixtures";
 
@@ -43,13 +44,15 @@ function main(): void {
   const auditRun = getFixtureAuditRun();
   const assessments = getFixturePortalAssessments();
 
-  writeJson("audit-summary.json", buildAuditSummaryExport(auditRun, generatedAt));
-  writeJson("portals.json", buildPortalsExport(assessments));
-  writeJson("findings.json", buildFindingsExport(assessments));
-  writeJson("methodology.json", buildMethodologyExport(generatedAt));
-  writeFileSync(join(EXPORTS_DIR, "assam-audit.csv"), buildCsvExport(assessments), "utf8");
+  const [auditSummaryFile, portalsFile, findingsFile, csvFile, methodologyFile] = EXPORT_FILENAMES;
 
-  console.info(`Wrote 5 export files to ${EXPORTS_DIR}`);
+  writeJson(auditSummaryFile, buildAuditSummaryExport(auditRun, generatedAt));
+  writeJson(portalsFile, buildPortalsExport(assessments));
+  writeJson(findingsFile, buildFindingsExport(assessments));
+  writeJson(methodologyFile, buildMethodologyExport(generatedAt));
+  writeFileSync(join(EXPORTS_DIR, csvFile), buildCsvExport(assessments), "utf8");
+
+  console.info(`Wrote ${EXPORT_FILENAMES.length} export files to ${EXPORTS_DIR}`);
 }
 
 try {

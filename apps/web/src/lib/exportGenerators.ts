@@ -26,6 +26,22 @@ import { publishableFindings } from "./portalDetail";
  * produces byte-identical output aside from `generatedAt`.
  */
 
+/**
+ * The exact 5 filenames `apps/web/scripts/build-exports.ts` writes into
+ * `apps/web/public/exports/`. Single source of truth for that filename
+ * list — `build-exports.ts` (the writer), `apps/web/src/app/exports/page.tsx`
+ * (the download page), and `apps/web/scripts/build-exports.test.ts` all
+ * import this instead of retyping the list, so a rename here can never
+ * silently drift from what any of those three actually reference.
+ */
+export const EXPORT_FILENAMES = [
+  "audit-summary.json",
+  "portals.json",
+  "findings.json",
+  "assam-audit.csv",
+  "methodology.json",
+] as const;
+
 export interface AuditSummaryExport {
   auditRunId: string;
   geography: string;

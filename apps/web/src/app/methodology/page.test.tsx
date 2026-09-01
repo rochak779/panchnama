@@ -63,6 +63,12 @@ describe("MethodologyPage (renders real methodologyContent.ts data)", () => {
     );
   });
 
+  it("makes the version history table keyboard-focusable with an accessible name", () => {
+    render(<MethodologyPage />);
+    const region = screen.getByRole("region", { name: "Methodology version history table" });
+    expect(region).toHaveAttribute("tabIndex", "0");
+  });
+
   it("has exactly one h2 per section and no skipped heading levels", () => {
     render(<MethodologyPage />);
 

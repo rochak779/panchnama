@@ -10,9 +10,9 @@ import {
   HUMAN_REVIEW_PROCESS,
   INVENTORY_SOURCES_NOTE,
   KNOWN_LIMITATIONS,
-  METHODOLOGY_VERSION_HISTORY,
   OBSERVED_ESTATE_RULES,
   SEVERITY_CONFIDENCE_RULES,
+  sortedVersionHistory,
 } from "@/lib/methodologyContent";
 import styles from "./methodology.module.css";
 
@@ -28,9 +28,7 @@ export const metadata: Metadata = { title: "Methodology" };
  * single source of truth.
  */
 export default function MethodologyPage() {
-  const versionHistory = [...METHODOLOGY_VERSION_HISTORY].sort((a, b) =>
-    b.date.localeCompare(a.date),
-  );
+  const versionHistory = sortedVersionHistory();
 
   return (
     <main id="main-content">
@@ -102,7 +100,12 @@ export default function MethodologyPage() {
 
         <section className={styles.section} aria-labelledby="version-history-heading">
           <h2 id="version-history-heading">Methodology version history</h2>
-          <div className={styles.tableWrap}>
+          <div
+            className={styles.tableWrap}
+            tabIndex={0}
+            role="region"
+            aria-label="Methodology version history table"
+          >
             <table className={styles.table}>
               <thead>
                 <tr>

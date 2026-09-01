@@ -36,6 +36,21 @@ export const METHODOLOGY_VERSION_HISTORY: MethodologyVersionEntry[] = [
 ];
 
 /**
+ * `entries` sorted most-recent-first by `date`. Defaults to the real
+ * `METHODOLOGY_VERSION_HISTORY`, which both `/methodology` and `/exports`
+ * render as the same version history table and previously re-derived this
+ * sort independently — this is the single shared implementation both pages
+ * now use instead. The optional parameter exists so tests can exercise the
+ * sort against a synthetic multi-entry array without adding a fake entry to
+ * the real (currently single-entry) constant.
+ */
+export function sortedVersionHistory(
+  entries: MethodologyVersionEntry[] = METHODOLOGY_VERSION_HISTORY,
+): MethodologyVersionEntry[] {
+  return [...entries].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
  * implementation.md section 2.3, "Definition of the observed Assam web
  * estate", and section 2.4, "Unit of analysis" — the actual inclusion rule
  * this pilot uses, not an invented one.
@@ -213,4 +228,4 @@ export const EXPERIENCE_POLICY_SUMMARY: string =
   "are published, in a separate section from the technical audit — they never automatically alter a " +
   "portal's technical health, severity, or suggested action. Published experiences are aggregated by " +
   "theme and outcome and are not a statistically representative sample of all users. See the full " +
-  "privacy and moderation policy at /privacy for retention periods and what is and is not collected.";
+  "privacy and moderation policy for retention periods and what is and is not collected.";

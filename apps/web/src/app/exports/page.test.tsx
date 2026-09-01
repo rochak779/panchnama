@@ -5,18 +5,13 @@ import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { EXPORT_FILENAMES } from "@/lib/exportGenerators";
 import { METHODOLOGY_VERSION_HISTORY } from "@/lib/methodologyContent";
 import ExportsPage from "./page";
 
 const REAL_EXPORTS_DIR = join(process.cwd(), "public", "exports");
 
-const EXPECTED_FILES = [
-  "audit-summary.json",
-  "portals.json",
-  "findings.json",
-  "assam-audit.csv",
-  "methodology.json",
-] as const;
+const EXPECTED_FILES = EXPORT_FILENAMES;
 
 describe("ExportsPage with the real generated export files (end-to-end download integrity)", () => {
   it("lists all 5 download links with correct hrefs and a non-zero file size", () => {
@@ -34,6 +29,16 @@ describe("ExportsPage with the real generated export files (end-to-end download 
     for (const match of sizeMatches) {
       expect(match.textContent).not.toBe("0.0 KB");
     }
+  });
+
+  it("makes both scrollable tables keyboard-focusable with an accessible name", () => {
+    render(<ExportsPage exportsDir={REAL_EXPORTS_DIR} />);
+
+    const filesRegion = screen.getByRole("region", { name: "Export files table" });
+    expect(filesRegion).toHaveAttribute("tabIndex", "0");
+
+    const changelogRegion = screen.getByRole("region", { name: "Methodology changelog table" });
+    expect(changelogRegion).toHaveAttribute("tabIndex", "0");
   });
 
   it("renders the METHODOLOGY_VERSION_HISTORY entries as the changelog", () => {

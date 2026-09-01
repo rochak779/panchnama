@@ -12,8 +12,10 @@ import {
   INVENTORY_SOURCES_NOTE,
   KNOWN_LIMITATIONS,
   METHODOLOGY_VERSION_HISTORY,
+  type MethodologyVersionEntry,
   OBSERVED_ESTATE_RULES,
   SEVERITY_CONFIDENCE_RULES,
+  sortedVersionHistory,
 } from "./methodologyContent";
 
 /**
@@ -40,6 +42,33 @@ describe("CURRENT_METHODOLOGY_VERSION", () => {
   it("is the latest (and matches the last) entry in METHODOLOGY_VERSION_HISTORY", () => {
     const last = METHODOLOGY_VERSION_HISTORY.at(-1);
     expect(last?.version).toBe(CURRENT_METHODOLOGY_VERSION);
+  });
+});
+
+describe("sortedVersionHistory", () => {
+  it("defaults to METHODOLOGY_VERSION_HISTORY when called with no argument", () => {
+    expect(sortedVersionHistory()).toEqual(
+      [...METHODOLOGY_VERSION_HISTORY].sort((a, b) => b.date.localeCompare(a.date)),
+    );
+  });
+
+  it("sorts a synthetic multi-entry array most-recent-first by date", () => {
+    // Local test-only entries — the real METHODOLOGY_VERSION_HISTORY constant
+    // is left untouched, per the task brief.
+    const entries: MethodologyVersionEntry[] = [
+      { version: "1.0.0", date: "2026-09-15", summary: "Initial published methodology." },
+      { version: "1.1.0", date: "2026-10-01", summary: "Clarified crawl boundaries." },
+      { version: "0.9.0", date: "2026-08-01", summary: "Pre-launch draft." },
+    ];
+
+    expect(sortedVersionHistory(entries)).toEqual([
+      { version: "1.1.0", date: "2026-10-01", summary: "Clarified crawl boundaries." },
+      { version: "1.0.0", date: "2026-09-15", summary: "Initial published methodology." },
+      { version: "0.9.0", date: "2026-08-01", summary: "Pre-launch draft." },
+    ]);
+
+    // Original array is not mutated.
+    expect(entries[0]!.version).toBe("1.0.0");
   });
 });
 

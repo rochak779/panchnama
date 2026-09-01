@@ -8,7 +8,7 @@
     "build:exports": "tsx scripts/build-exports.ts",
     "start": "next start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "pnpm run build:exports && vitest run",
     "clean": "rm -rf .next dist *.tsbuildinfo"
   },
   "dependencies": {

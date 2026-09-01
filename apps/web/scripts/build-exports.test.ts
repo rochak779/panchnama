@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { CURRENT_METHODOLOGY_VERSION } from "../src/lib/methodologyContent";
+import { EXPORT_FILENAMES } from "../src/lib/exportGenerators";
 import { getFixturePortalAssessments } from "../src/lib/publishedFixtures";
 import { publishableFindings } from "../src/lib/portalDetail";
 
@@ -22,13 +23,7 @@ import { publishableFindings } from "../src/lib/portalDetail";
 
 const WEB_ROOT = join(__dirname, "..");
 const EXPORTS_DIR = join(WEB_ROOT, "public", "exports");
-const FILES = [
-  "audit-summary.json",
-  "portals.json",
-  "findings.json",
-  "assam-audit.csv",
-  "methodology.json",
-];
+const FILES = EXPORT_FILENAMES;
 
 function runGenerator(): void {
   execFileSync("node_modules/.bin/tsx", ["scripts/build-exports.ts"], {
