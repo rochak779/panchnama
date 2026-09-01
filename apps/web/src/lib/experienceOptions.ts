@@ -1,4 +1,14 @@
-import { EXPERIENCE_THEME_VALUES } from "@panchnama/database";
+// Imported from the `./constants` subpath, not the package's default `.`
+// entry point: the default entry (`@panchnama/database`'s `index.ts`)
+// re-exports `client.ts`/`env.ts`, which pull in the Postgres driver and
+// `node:fs`/`node:path` — fine for this file's own server-only consumer
+// (`requestSchema.ts`, used only by the API route), but this file is also
+// imported directly by Session 15 Task 2's client-side submission form
+// (`ShareExperienceForm.tsx`, for `TASK_TYPE_OPTIONS`), and a browser
+// bundle cannot include Node-only modules. `./constants` is a plain,
+// side-effect-free values module, so importing it here keeps every
+// consumer of this file client-bundle-safe.
+import { EXPERIENCE_THEME_VALUES } from "@panchnama/database/constants";
 
 /**
  * Controlled task/theme vocabulary for the experience submission form
