@@ -2135,3 +2135,14 @@ After the Assam case study is complete and evaluated, possible next experiments 
 - establishing a government correction and response process.
 
 None of these should be started until the version-one definition of done is satisfied.
+
+### 18.1 Deferred operational gaps (fix after all sessions, before real production use)
+
+- **Real User-Agent contact route.** `config/crawl-policy.yaml`'s
+  `robotsAndIdentification.userAgent`/`contactUrl` are still placeholder
+  `panchnama.example.org` values, not a real, monitored contact route a
+  department could use to reach the crawl operator — which §6.3 calls
+  for once actually deployed against live hosts. Session 17's live-crawl
+  ADR (§12.5) explicitly accepts this gap for the bounded, low-volume
+  3–5 portal smoke crawl only. It must be replaced with a real address
+  before any wider or repeated live crawling beyond that pilot.
