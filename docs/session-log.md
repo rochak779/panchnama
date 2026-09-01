@@ -3268,3 +3268,275 @@ temporary fixture directory was committed.
   reference.
 - The `apps/web/vitest.config.ts` `@/` alias this session added is
   available for Session 11's component tests.
+
+---
+
+## Session 11 — Frontend foundation and design system
+
+**Goal:** Extend the application runtime into the public scorecard shell
+and accessible UI language (implementation.md section 14). Direction
+process note: this surface's visual world is explicitly pinned by the spec
+itself (section 10.10: "an evidence register: sober, legible, calm, and
+specific," independent of and visually distinct from any Government of
+Assam branding) — an Operate/Read-mode internal tool, not an open aesthetic
+brief. Per the design skill's own new-work guidance ("a brief-pinned
+direction beats the roll, always"), this session committed that pinned
+world directly rather than running its concept-tournament/image-generation
+machinery, which exists for surfaces without a settled aesthetic. `PRODUCT.md`
+and `DESIGN.md` were written this session as the durable record of that
+decision (see below).
+
+### Files changed
+
+- `PRODUCT.md`, `DESIGN.md` (new, repo root) — product truth and the
+  design-system record (tokens, components, do's/don'ts), inferred from
+  implementation.md sections 1–3, 10 and confirmed with the user rather
+  than independently interviewed (the spec already answers everything the
+  design skill's init interview would ask).
+- `apps/web/src/styles/tokens.css` (new) — every design token: color
+  (Restrained strategy — cool neutral scale + one muted slate-indigo
+  accent + five semantic status tones), typography (Public Sans one UI
+  family + IBM Plex Mono for data), spacing (4px scale), borders/radius
+  (hairline, boxy), focus ring, motion (short, `prefers-reduced-motion`
+  aware), responsive breakpoints.
+- `apps/web/src/styles/contrast.ts` (+ `tokens.contrast.test.ts`, new) —
+  a real WCAG relative-luminance contrast calculator and a test asserting
+  every text-bearing token clears 4.5:1 against both `--color-canvas` and
+  `--color-surface` — a checked property, not a one-off manual
+  calculation.
+- `apps/web/src/styles/globals.css` (new) — reset, base typography, themed
+  browser surfaces (selection, focus ring, skip link), `.visually-hidden`/
+  `.tabular-nums` utilities.
+- `apps/web/src/components/icons.tsx` (new) — a small hand-authored SVG
+  icon set (one consistent stroke/weight), never Unicode/emoji glyphs.
+- `apps/web/src/components/status/` (new): `statusTokens.ts` (the single
+  source of truth mapping `TechnicalHealth`/`Severity`/`SuggestedAction`
+  values to a tone + icon + label), `StatusBadge.tsx` (+ test),
+  `SeverityMarker.tsx` (+ test), `status.module.css`.
+- `apps/web/src/components/` (new): `SiteHeader.tsx`, `AuditContextBanner.tsx`,
+  `SiteFooter.tsx`, `IndependenceNotice.tsx`, `EvidenceCallout.tsx`,
+  `EmptyState.tsx`, `ErrorState.tsx` (each + a test file),
+  `layout.module.css`, `states.module.css`.
+- `apps/web/src/lib/publishedFixtures.ts` (+ test, new) — "load validated
+  local published fixtures at build time": reads/validates
+  `data/fixtures/audit-run.json` and `data/fixtures/portal-assessments.json`
+  through `@panchnama/schema`, throwing a named `InvalidFixtureDataError`
+  (never silently rendering bad/partial data) on any schema violation.
+  Deliberately distinct from Session 10's `publishedPortals.ts` (a
+  request-time, soft-failing existence check against real
+  `data/published/` for the experience API) — this is the page-content
+  data source, build-time, loud-failing.
+- `apps/web/src/lib/formatDate.ts` (+ test, new) — plain-English,
+  unambiguous date formatting (implementation.md section 10.9).
+- `data/fixtures/audit-run.json`, `data/fixtures/portal-assessments.json`
+  (new) — hand-authored, schema-valid, clearly-fictional fixture data,
+  built from Session 1's own already-validated `packages/schema/src/fixtures/valid.ts`
+  shapes (translated to JSON) rather than invented from scratch, to
+  minimize the risk of an invalid fixture.
+- `apps/web/src/app/layout.tsx` (rewritten) — real metadata (title
+  template, OpenGraph/Twitter, `robots: noindex` since this build has no
+  real audit data yet), `next/font/google` (Public Sans + IBM Plex Mono,
+  self-hosted at build time), the direction-contract HTML comment, skip
+  link, `SiteHeader`/`AuditContextBanner`/`SiteFooter` wrapping `children`.
+- `apps/web/src/app/fonts.ts` (new) — the two `next/font` definitions.
+- `apps/web/src/app/icon.svg` (new) — a plain monogram favicon (no
+  emblem/seal imagery).
+- `apps/web/src/app/page.tsx` (rewritten, + test) + `page.module.css` (new)
+  — the design-system proof-of-mechanism page: real layout, real
+  components, real (fixture) data, explicitly scoped as _not_ the real
+  Session 12 Assam-overview IA (a placeholder note says so on the page
+  itself).
+- `apps/web/src/types/css-modules.d.ts` (new) — ambient module declaration
+  so `tsc --noEmit` (run outside Next's own build) resolves `*.module.css`
+  imports.
+- `apps/web/vitest.config.ts`, `apps/web/vitest.setup.ts` — jsdom opt-in
+  per test file (`// @vitest-environment jsdom`) rather than a global
+  flip (would have broken Session 10's `Request`/`Response`-based node
+  tests), jest-dom matchers, `jest-axe`'s `toHaveNoViolations`, and RTL's
+  `cleanup()` registered manually (this project doesn't enable Vitest's
+  `globals`, so RTL's own auto-cleanup detection has nothing to hook into)
+  — all guarded to be a no-op outside a DOM environment.
+- `eslint.config.mjs` — added `eslint-config-next` (`next/core-web-vitals`)
+  via `FlatCompat`, scoped to `apps/web/**` only, with
+  `settings.next.rootDir` corrected for the monorepo layout. Closes the
+  gap Session 0 explicitly deferred ("no eslint-config-next yet... until
+  there is real UI code worth Next-specific lint rules").
+- `apps/web/next.config.mjs` — `eslint.ignoreDuringBuilds: true` (see
+  Decisions).
+- `apps/web/package.json`, `package.json` (root), `pnpm-lock.yaml` — new
+  devDependencies: `@testing-library/react`/`jest-dom`/`user-event`,
+  `jest-axe` (+ `@types/jest-axe`), `jsdom`, `eslint-config-next`;
+  `@eslint/eslintrc` at the root (for `FlatCompat`).
+- `.gitignore` — added `.impeccable/` (design-skill working state:
+  review screenshots, decision mocks — ephemeral, not project source;
+  `PRODUCT.md`/`DESIGN.md` at the repo root are committed normally).
+- `docs/session-log.md` — this entry.
+
+### Decisions
+
+- **Color strategy: Restrained, one accent, never reused for status.**
+  Five semantic status tones (`good`/`caution`/`severe`/`info`/`unknown`)
+  are structurally separate from the one accent (`#464b78`, a muted
+  slate-indigo) reserved for actions/links/selection/focus — chosen
+  specifically _not_ blue, to avoid reading as a generic "official Indian
+  government portal" palette. Full rationale and every token value in
+  `DESIGN.md`.
+- **Status is never color-only, enforced structurally, not by
+  convention.** `statusTokens.ts` is the single place a domain enum maps
+  to {label, tone, icon}; `StatusBadge`/`SeverityMarker` always render the
+  icon and the label together — there is no prop that renders color alone,
+  so a future caller cannot accidentally regress this. `SeverityMarker`
+  additionally gives each severity a distinct icon _shape_ (octagon /
+  triangle / circle), not just a color, so the distinction survives
+  grayscale printing or a color-vision deficiency — tested directly
+  (`SeverityMarker.test.tsx`'s "distinct icon shape" case).
+- **One UI type family (Public Sans), a second family reserved for actual
+  data (IBM Plex Mono).** Per Operate/Read-mode guidance: product UI
+  rarely needs a display/body pairing, and a "technical" monospace costume
+  on non-data text is a named craft-floor anti-pattern. Public Sans
+  (USWDS's own typeface) was chosen for its civic/evidence-register
+  character without borrowing government branding, not from the
+  training-data display-face default list.
+- **`data/fixtures/` (not `data/published/`) is Session 11's data
+  source**, matching Session 0's original directory documentation
+  (human-curated/committed, unlike `data/raw`/`data/published`). Built
+  from Session 1's already-validated `fixtures/valid.ts` TypeScript shapes
+  translated to JSON (not invented independently), specifically to avoid
+  introducing a new, unverified fixture bug. `getFixtureAuditRun`/
+  `getFixturePortalAssessments` throw a named, loud error on any schema
+  violation rather than rendering a blank/wrong page — verified for real
+  by deliberately corrupting `data/fixtures/audit-run.json` (`geography:
+"kerala"`) and confirming `next build` fails with the exact
+  `InvalidFixtureDataError` message and Zod detail, not a generic crash.
+- **`next.config.mjs`'s `eslint.ignoreDuringBuilds: true`.** `next build`
+  runs its own separate, auto-detected ESLint pass from `apps/web` as cwd,
+  which cannot find or correctly resolve this monorepo's root-level flat
+  config (`settings.next.rootDir`, set relative to the repo root, doesn't
+  resolve the same way from a different cwd) — it produced spurious
+  "plugin not detected"/"pages directory not found" warnings for a check
+  `pnpm lint` (the actual gate, confirmed to apply real
+  `next/core-web-vitals` rules to `apps/web/**`) already performs
+  correctly. Disabling a redundant, misconfigured second lint pass, not
+  skipping linting.
+- **`apps/web/vitest.config.ts`'s `esbuild.jsx: "automatic"`.** Vite's
+  default JSX transform emitted classic `React.createElement` calls with
+  no `React` import in scope (this codebase, like Next itself, never
+  imports `React` — React 19's automatic runtime), causing every component
+  test to fail with `ReferenceError: React is not defined` until this was
+  set explicitly.
+- **jsdom opted in per test file, not globally.** Flipping Vitest's
+  default environment to jsdom would have broken every Session 10
+  lib/route test (they construct real platform `Request`/`Response`
+  objects, which jsdom does not implement). Component tests instead carry
+  a `// @vitest-environment jsdom` docblock; `vitest.setup.ts` guards its
+  DOM-only setup (`@testing-library/jest-dom`, RTL `cleanup()`) behind
+  `typeof document !== "undefined"` so the same setup file is safe for
+  both kinds of test.
+- **No Storybook / component documentation page.** Implementation.md
+  explicitly permits skipping this "only if it adds more value than
+  maintenance cost." Six small, individually-tested components with
+  co-located, readable source and a `DESIGN.md` recording the system
+  don't yet justify a second, separately-maintained documentation
+  surface; revisit once Sessions 12-16 have grown the component count.
+- **Finish review and documentation run in-thread, not via the shipped
+  `impeccable-finish-reviewer`/`impeccable-documenter` subagents.** This
+  harness's available agent list did not include those specific named
+  roles this session; per the skill's own degraded-path instructions, the
+  review ran from `degraded/finish-reviewer.md` and the documentation
+  pass wrote `DESIGN.md` directly, both disclosed as substitutions rather
+  than silently self-certified. Disposition: **ship**, with one disclosed,
+  intentional process deviation (no concept-tournament seed key in the
+  direction contract — see the section intro above) rather than a defect.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/web run test
+ Test Files  28 passed (28)
+      Tests  187 passed (187)   # 113 from Session 10 + 74 new this session
+                                 # (20 token-contrast, 7 fixtures, 2 date,
+                                 #  32 component, 13 route/page wiring)
+
+$ pnpm lint        # eslint . — exit 0, no output (now applying real
+                    #   next/core-web-vitals rules to apps/web/**)
+$ pnpm typecheck   # 6 workspace projects — exit 0
+$ pnpm test        # all workspaces — 633 tests total, all passed
+$ pnpm build       # next build (static "/", dynamic API routes,
+                    #   /icon.svg) + 5 packages (tsc) — exit 0
+$ pnpm format      # prettier — reformatted new files to project style
+```
+
+Manual end-to-end / visual verification (real `next start`, real browser):
+
+- **Build fails loudly on invalid fixture data (exit criterion, proven for
+  real):** temporarily set `data/fixtures/audit-run.json`'s `geography`
+  to `"kerala"` — `next build` failed prerendering with the exact
+  `InvalidFixtureDataError` message and the underlying `ZodError` detail
+  (`Invalid literal value, expected "assam"`), not a generic crash;
+  restored, rebuilt clean.
+- **Desktop and mobile screenshots** (`.impeccable/review/desktop.png`,
+  `mobile.png`, both real browser renders — the mobile capture used a
+  real 320px-wide same-origin iframe rather than the browser tool's
+  window-resize, which did not actually change `window.innerWidth` in
+  this sandbox; confirmed via `document.documentElement.scrollWidth <=
+clientWidth` at a real 320px content width, `hasHorizontalOverflow:
+false`): header wraps to wordmark row + nav row, banner stacks its
+  label/value pairs, portal grid collapses to one column, no overflow, no
+  truncation.
+- **Keyboard behavior, live:** first `Tab` focuses the skip link with a
+  visible ring; continued tabbing moves through the wordmark link, then
+  primary nav ("Overview" etc.), each with a visible `:focus-visible`
+  ring — captured in real browser screenshots.
+- **Mechanical design detector** (`detect.mjs --json` over
+  `apps/web/src`): zero findings.
+
+### Known limitations (deferred, explicit)
+
+- **This is the design-system foundation, not the real Assam overview
+  page.** `page.tsx` explicitly says so in its own copy and doc comment.
+  Session 12 owns the actual overview information architecture (hero
+  proposition, coverage summary, priority findings, directory mismatch
+  summary, limitations callout) and should reuse `AuditContextBanner`/
+  `StatusBadge`/`SeverityMarker`/`EvidenceCallout` rather than rebuild
+  equivalents.
+- **Footer/header links to `/inventory`, `/methodology`, `/exports`,
+  `/privacy` point at routes that don't exist yet** — they will 404 until
+  Sessions 12-16 build those pages. This is expected and not a bug; noted
+  here so it isn't mistaken for one.
+- **No dark mode.** Not established as a need in `PRODUCT.md`; `DESIGN.md`
+  records the omission as deliberate, not an oversight.
+- **`next/font/google` requires network access at build time** to fetch
+  Public Sans/IBM Plex Mono (self-hosted into the build output afterward —
+  no runtime request). Documented here since a fully offline build
+  environment would need a different font-loading strategy; not
+  encountered as a real failure in this session's sandbox.
+- **The browser automation tool's `resize_window` did not change the
+  actual page viewport in this sandbox** (`window.innerWidth` stayed
+  fixed regardless of the requested window size) — worked around with a
+  same-origin iframe for the real mobile-width capture; flagged here as a
+  tooling quirk for whoever runs visual verification in a future session,
+  not a product limitation.
+- **No `impeccable-finish-reviewer`/`impeccable-documenter` subagents
+  available in this harness** — both passes ran in-thread per the design
+  skill's own degraded-path instructions, disclosed above, not hidden.
+
+### Next session prerequisites (Session 12 — Assam overview)
+
+- `apps/web/src/lib/publishedFixtures.ts` is the data-loading contract
+  Session 12 should build against (and, per its own doc comment, is what
+  a later session swaps for real `data/published/<runId>/...` reads
+  without needing to change component props).
+- `AuditContextBanner`, `StatusBadge`, `SeverityMarker`, `EvidenceCallout`,
+  `EmptyState`, `ErrorState` are ready for reuse; `DESIGN.md`'s
+  "Do's and Don'ts" section is the fast reference for what not to
+  reinvent (shadows, colored border-left accents, kicker labels, a second
+  accent color).
+- `data/fixtures/portal-assessments.json` currently has two portals (one
+  `healthy`, one `degraded`) — Session 12 may need a larger/more varied
+  fixture set (more portals, more severities, a `not_assessable` case, a
+  directory-mismatch example) to exercise the real overview page's
+  "priority findings"/"directory mismatch summary" sections; extend the
+  existing file rather than inventing a second fixture source.
+- `PRODUCT.md`/`DESIGN.md` are the durable references for user/purpose
+  and visual-system decisions — read them before making a new token or
+  component-shape decision rather than re-deriving one.

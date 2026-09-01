@@ -11,9 +11,27 @@ import { defineConfig } from "vitest/config";
  * dependency.
  */
 export default defineConfig({
+  // Session 11: component tests use JSX. Vite's default esbuild transform
+  // needs an explicit "automatic" runtime (importing from
+  // react/jsx-runtime) — without this it emits classic React.createElement
+  // calls with no React import in scope, since this codebase never imports
+  // `React` itself (React 19 + the automatic JSX runtime, matching Next's
+  // own default).
+  esbuild: {
+    jsx: "automatic",
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
+  },
+  test: {
+    // Default environment stays "node" (matches Session 10's lib/route
+    // tests, which use the platform Request/Response and would break under
+    // jsdom, which does not implement fetch's Request/Response). Session
+    // 11's component tests opt into jsdom per-file with a
+    // `// @vitest-environment jsdom` docblock instead of flipping this
+    // globally.
+    setupFiles: ["./vitest.setup.ts"],
   },
 });

@@ -1,0 +1,123 @@
+/**
+ * Design tokens (implementation.md section 14 Session 11: "Define
+ * typography, spacing, color, borders, status tokens, and responsive
+ * breakpoints"). Every component in `src/components/` reads these custom
+ * properties rather than hard-coding a value, so a future change stays in
+ * one place.
+ *
+ * Direction (implementation.md section 10.10, brief-pinned — not an open
+ * aesthetic choice): "an evidence register: sober, legible, calm, and
+ * specific," independent of and visually distinct from any Government of
+ * Assam or national branding. Color strategy is Restrained (a neutral
+ * scale plus one accent) per this project's Operate/Read-mode UI.
+ *
+ * Palette notes:
+ * - Cool neutrals (not the warm cream/parchment often reached for by
+ *   default) — this is a case-file register, not a book jacket.
+ * - One accent, a muted slate-indigo (`--color-accent`) reserved for
+ *   primary actions, links, current selection, and focus — never used for
+ *   status, which is conveyed by its own semantic tokens plus icon/text
+ *   (see StatusBadge/SeverityMarker), never color alone.
+ * - Semantic status colors are deliberately dark/desaturated enough to
+ *   clear 4.5:1 body-text contrast against `--color-canvas`/`--color-
+ *   surface` on their own (verified in component tests), since they are
+ *   also used as icon/text color, not just as a background swatch.
+ */
+
+:root {
+  /* Neutral scale — cool gray, paper-like without reading as warm/cream. */
+  --color-canvas: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface-secondary: #eceef1;
+  --color-border: #d5d9de;
+  --color-border-strong: #aab1ba;
+  --color-ink: #14181d;
+  --color-ink-secondary: #444b54;
+  --color-ink-muted: #667079;
+  --color-ink-on-accent: #ffffff;
+
+  /* The one accent — never used to encode status. */
+  --color-accent: #464b78;
+  --color-accent-strong: #363a5e;
+  --color-accent-surface: #eceefc;
+
+  /* Semantic status colors. Each is paired with an icon and a text label
+   * in every component that uses it — see StatusBadge/SeverityMarker. */
+  --color-status-good: #1b6b40;
+  --color-status-good-surface: #e6f2ea;
+  --color-status-caution: #7a5900;
+  --color-status-caution-surface: #f7eed9;
+  --color-status-severe: #a3271f;
+  --color-status-severe-surface: #f8e6e4;
+  --color-status-info: #2f5773;
+  --color-status-info-surface: #e6edf2;
+  --color-status-unknown: #565f68;
+  --color-status-unknown-surface: #eceef0;
+
+  /* Typography. One UI family (Operate/Read guidance: product UI rarely
+   * needs a display/body pairing); a monospace reserved for actual data —
+   * timestamps, hashes, URLs, audit-run ids — never as a "technical"
+   * costume. Fixed rem scale, tighter ratio (~1.15-1.2), not fluid. */
+  --font-sans:
+    var(--font-public-sans), "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:
+    var(--font-mono-data), ui-monospace, "SFMono-Regular", "IBM Plex Mono", Consolas, monospace;
+
+  --font-size-xs: 0.75rem; /* 12px */
+  --font-size-sm: 0.875rem; /* 14px */
+  --font-size-base: 1rem; /* 16px */
+  --font-size-md: 1.125rem; /* 18px */
+  --font-size-lg: 1.375rem; /* 22px */
+  --font-size-xl: 1.75rem; /* 28px */
+  --font-size-2xl: 2.25rem; /* 36px */
+
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Spacing scale, 4px base unit. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --space-10: 4rem;
+
+  /* Borders and radius — hairline, boxy, no thick accent bars. */
+  --border-width-hairline: 1px;
+  --border-width-emphasis: 2px;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+
+  /* Focus ring — always visible, never suppressed. */
+  --focus-ring-color: var(--color-accent);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Motion. Operate mode: short, state-conveying only, no orchestrated
+   * page-load choreography. Respect prefers-reduced-motion (see below). */
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 200ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Responsive breakpoints, as reference values for JS/tests; CSS media
+   * queries use the literal px values directly (custom properties are not
+   * usable inside @media conditions). */
+  --breakpoint-sm: 480px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-content-max: 1180px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+  }
+}

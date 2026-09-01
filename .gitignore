@@ -41,3 +41,8 @@ data/evidence/*
 
 # Database
 *.pgdata/
+
+# Impeccable design-skill working state (review screenshots, decision
+# mocks) — ephemeral tool output, not project source. PRODUCT.md/DESIGN.md
+# at the repo root are committed as normal.
+.impeccable/

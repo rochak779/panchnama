@@ -1,0 +1,21 @@
+{
+  "id": "assam-2026-09-15-r1",
+  "geography": "assam",
+  "startedAt": "2026-09-15T02:00:00Z",
+  "completedAt": "2026-09-15T04:30:00Z",
+  "status": "partial",
+  "methodologyVersion": "1.0.0",
+  "schemaVersion": "1.0.0",
+  "codeRevision": "07d2c1e",
+  "nodeVersion": "22.11.0",
+  "packageVersionsDigest": "sha256:0f2a...digest",
+  "sourceRegistryDigest": "sha256:1a3b...digest",
+  "crawlPolicyDigest": "sha256:2c4d...digest",
+  "checkConfigDigest": "sha256:3e5f...digest",
+  "enabledChecks": ["availability.unavailable.v1", "redirect.cross-domain.v1"],
+  "portalCount": 2,
+  "portalsSucceeded": 1,
+  "portalsFailed": 0,
+  "portalsPartial": 1,
+  "limitations": ["Browser fallback disabled for this run."]
+}
