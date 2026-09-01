@@ -1,0 +1,89 @@
+.container {
+  max-width: var(--breakpoint-content-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 70ch;
+}
+
+.hero h1 {
+  font-size: var(--font-size-2xl);
+  color: var(--color-ink);
+}
+
+.hero p {
+  font-size: var(--font-size-md);
+  color: var(--color-ink-secondary);
+  line-height: var(--line-height-normal);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.section h2 {
+  font-size: var(--font-size-lg);
+  color: var(--color-ink);
+}
+
+.prose {
+  max-width: 75ch;
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-secondary);
+  line-height: var(--line-height-normal);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width-hairline) solid var(--color-border);
+  vertical-align: top;
+}
+
+.table th {
+  color: var(--color-ink-muted);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-xs);
+}
+
+.table td {
+  color: var(--color-ink-secondary);
+}
+
+.table td:first-child code {
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.downloadLink {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.unavailable {
+  color: var(--color-ink-muted);
+  font-style: italic;
+}
