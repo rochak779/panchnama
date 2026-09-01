@@ -7,6 +7,16 @@
  * imply Panchnama is an official, government, or verified channel.
  */
 
+/** Intro note shown at the top of the share-an-experience form, before any
+ * step or field exists — this is a form-wide framing statement, distinct in
+ * scope from PRIVACY_WARNING_COPY below (which is specifically about the
+ * step-3 free-text field). Kept as its own named constant, rather than a
+ * hardcoded string in the component, so it has exactly one source of truth
+ * like every other policy claim in this module. */
+export const SHARE_FORM_INTRO_COPY =
+  "This form is anonymous. Do not include your name, phone number, or any " +
+  "other identifying detail.";
+
 /** Step 3/4 warning: never include personal information in free text. */
 export const PRIVACY_WARNING_COPY =
   "Do not include personal information in your description. Panchnama does " +

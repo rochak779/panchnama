@@ -15,7 +15,17 @@ import {
   CONSENT_TO_PUBLISH_COPY,
   NOT_A_GRIEVANCE_CHANNEL_COPY,
   PRIVACY_WARNING_COPY,
+  SHARE_FORM_INTRO_COPY,
 } from "@/lib/experienceCopy";
+// Imported from the `./constants` subpath, not the package's default `.`
+// entry point — see `apps/web/src/lib/experienceOptions.ts` for why: the
+// default entry pulls in the Postgres driver and `node:fs`/`node:path`,
+// which breaks a client bundle. `./constants` is a plain, side-effect-free
+// values module, so this stays client-bundle-safe.
+import {
+  TASK_DESCRIPTION_MAX_LENGTH,
+  FREE_TEXT_MAX_LENGTH,
+} from "@panchnama/database/constants";
 import { submitExperience, type SubmitExperienceResult } from "@/lib/experienceApiClient";
 import { VisuallyHidden } from "@/components/VisuallyHidden";
 import styles from "./ShareExperienceForm.module.css";
@@ -32,9 +42,6 @@ const STEP_LABELS = [
   "Privacy and consent",
   "Review and submit",
 ] as const;
-
-const TASK_DESCRIPTION_MAX = 280;
-const FREE_TEXT_MAX = 1000;
 
 const RATING_OPTIONS: { value: 1 | 2 | 3 | 4 | 5; label: string }[] = [
   { value: 1, label: "1 — Very poor" },
@@ -129,8 +136,8 @@ function validateStep(step: number, data: FormState): FieldErrors {
     if (data.taskType === "other" && data.taskDescription.trim().length === 0) {
       errors.taskDescription = "Describe what you were trying to do.";
     }
-    if (data.taskDescription.length > TASK_DESCRIPTION_MAX) {
-      errors.taskDescription = `Keep this to ${TASK_DESCRIPTION_MAX} characters or fewer.`;
+    if (data.taskDescription.length > TASK_DESCRIPTION_MAX_LENGTH) {
+      errors.taskDescription = `Keep this to ${TASK_DESCRIPTION_MAX_LENGTH} characters or fewer.`;
     }
   }
   if (step === 2) {
@@ -142,8 +149,8 @@ function validateStep(step: number, data: FormState): FieldErrors {
     if (data.themes.length === 0) {
       errors.themes = "Select at least one.";
     }
-    if (data.freeText.length > FREE_TEXT_MAX) {
-      errors.freeText = `Keep this to ${FREE_TEXT_MAX} characters or fewer.`;
+    if (data.freeText.length > FREE_TEXT_MAX_LENGTH) {
+      errors.freeText = `Keep this to ${FREE_TEXT_MAX_LENGTH} characters or fewer.`;
     }
   }
   if (step === 4) {
@@ -193,6 +200,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
 
   const submittingRef = useRef(false);
   const errorSummaryRef = useRef<HTMLDivElement>(null);
+  const successRef = useRef<HTMLElement>(null);
 
   // Restore a draft saved after an earlier error in this tab session, if
   // one exists. Never restores the honeypot field.
@@ -209,6 +217,15 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [errorNonce]);
+
+  // Mirrors the error-summary focus pattern above: the whole form unmounts
+  // on success and is replaced by this section, so a screen-reader user
+  // needs focus moved here explicitly or they get no confirmation at all.
+  useEffect(() => {
+    if (status === "success") {
+      successRef.current?.focus();
+    }
+  }, [status]);
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setFormState((prev) => ({ ...prev, [key]: value }));
@@ -268,7 +285,8 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
     const payload = {
       occurredOn: formState.occurredOn.trim() || undefined,
       taskType: formState.taskType as TaskTypeOption,
-      taskDescription: formState.taskDescription.trim() || undefined,
+      taskDescription:
+        formState.taskType === "other" ? formState.taskDescription.trim() || undefined : undefined,
       outcome: formState.outcome as TaskOutcome,
       themes: formState.themes,
       deviceType: formState.deviceType || undefined,
@@ -312,7 +330,12 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
 
   if (status === "success" && result?.ok) {
     return (
-      <section className={styles.successPanel} aria-labelledby="share-experience-success-heading">
+      <section
+        ref={successRef}
+        className={styles.successPanel}
+        aria-labelledby="share-experience-success-heading"
+        tabIndex={-1}
+      >
         <h1 id="share-experience-success-heading">Thank you</h1>
         <p>{result.message}</p>
         <Link href={`/portals/${portalId}`}>Back to {portalName}</Link>
@@ -329,10 +352,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
   return (
     <section className={styles.form} aria-labelledby="share-experience-heading">
       <h1 id="share-experience-heading">Share your experience — {portalName}</h1>
-      <p className={styles.introNote}>
-        This form is anonymous. Do not include your name, phone number, or any other identifying
-        detail.
-      </p>
+      <p className={styles.introNote}>{SHARE_FORM_INTRO_COPY}</p>
 
       <ol className={styles.stepIndicator} aria-label="Form progress">
         {STEP_LABELS.map((label, index) => {
@@ -465,7 +485,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
                 <input
                   id="field-taskDescription"
                   type="text"
-                  maxLength={TASK_DESCRIPTION_MAX}
+                  maxLength={TASK_DESCRIPTION_MAX_LENGTH}
                   value={formState.taskDescription}
                   onChange={(e) => updateField("taskDescription", e.target.value)}
                   aria-describedby={
@@ -475,7 +495,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
                   }
                 />
                 <p id="field-taskDescription-count" className={styles.charCount}>
-                  {formState.taskDescription.length}/{TASK_DESCRIPTION_MAX} characters
+                  {formState.taskDescription.length}/{TASK_DESCRIPTION_MAX_LENGTH} characters
                 </p>
                 {errors.taskDescription ? (
                   <p id="field-taskDescription-error" className={styles.fieldError}>
@@ -606,7 +626,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
               <textarea
                 id="field-freeText"
                 rows={5}
-                maxLength={FREE_TEXT_MAX}
+                maxLength={FREE_TEXT_MAX_LENGTH}
                 value={formState.freeText}
                 onChange={(e) => updateField("freeText", e.target.value)}
                 aria-describedby={
@@ -614,7 +634,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
                 }
               />
               <p id="field-freeText-count" className={styles.charCount}>
-                {formState.freeText.length}/{FREE_TEXT_MAX} characters
+                {formState.freeText.length}/{FREE_TEXT_MAX_LENGTH} characters
               </p>
               {errors.freeText ? (
                 <p id="field-freeText-error" className={styles.fieldError}>
@@ -698,7 +718,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
               <div className={styles.reviewGroupHeader}>
                 <h3>Context</h3>
                 <button type="button" className={styles.editButton} onClick={() => editStep(1)}>
-                  Edit<span className={styles.visuallyHiddenText}> context</span>
+                  Edit<VisuallyHidden> context</VisuallyHidden>
                 </button>
               </div>
               <dl className={styles.reviewList}>
@@ -725,7 +745,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
               <div className={styles.reviewGroupHeader}>
                 <h3>Outcome</h3>
                 <button type="button" className={styles.editButton} onClick={() => editStep(2)}>
-                  Edit<span className={styles.visuallyHiddenText}> outcome</span>
+                  Edit<VisuallyHidden> outcome</VisuallyHidden>
                 </button>
               </div>
               <dl className={styles.reviewList}>
@@ -738,7 +758,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
               <div className={styles.reviewGroupHeader}>
                 <h3>What happened</h3>
                 <button type="button" className={styles.editButton} onClick={() => editStep(3)}>
-                  Edit<span className={styles.visuallyHiddenText}> what happened</span>
+                  Edit<VisuallyHidden> what happened</VisuallyHidden>
                 </button>
               </div>
               <dl className={styles.reviewList}>
@@ -763,7 +783,7 @@ export function ShareExperienceForm({ portalId, portalName }: ShareExperienceFor
               <div className={styles.reviewGroupHeader}>
                 <h3>Privacy and consent</h3>
                 <button type="button" className={styles.editButton} onClick={() => editStep(4)}>
-                  Edit<span className={styles.visuallyHiddenText}> privacy and consent</span>
+                  Edit<VisuallyHidden> privacy and consent</VisuallyHidden>
                 </button>
               </div>
               <p>Both consent statements confirmed.</p>

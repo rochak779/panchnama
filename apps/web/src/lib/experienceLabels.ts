@@ -1,5 +1,5 @@
 import type { TaskOutcome, ExperienceTheme } from "@panchnama/schema";
-import { TASK_TYPE_OPTIONS, type TaskTypeOption } from "./experienceOptions";
+import type { TaskTypeOption } from "./experienceOptions";
 
 /**
  * Human-readable label maps for every controlled-vocabulary value the
@@ -58,7 +58,3 @@ export const TASK_TYPE_LABELS: Record<TaskTypeOption, string> = {
   create_or_update_account: "Create or update an account",
   other: "Something else",
 };
-
-/** Sanity re-export so callers can iterate the exact same option order the
- * form uses, without importing `experienceOptions.ts` separately. */
-export { TASK_TYPE_OPTIONS };

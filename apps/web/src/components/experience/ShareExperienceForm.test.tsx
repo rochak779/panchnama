@@ -317,6 +317,59 @@ describe("ShareExperienceForm", () => {
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
+  it("moves focus to the success section once it mounts, for screen-reader confirmation", async () => {
+    const user = userEvent.setup();
+    mockSubmitExperience.mockResolvedValue({ ok: true, message: "Thanks." });
+    renderForm();
+    await fillThroughToReview(user);
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    const heading = await screen.findByRole("heading", { name: "Thank you" });
+    expect(heading.closest("section")).toHaveFocus();
+  });
+
+  it("does not submit a stale taskDescription after taskType is changed away from 'other'", async () => {
+    const user = userEvent.setup();
+    mockSubmitExperience.mockResolvedValue({ ok: true, message: "Thanks." });
+    renderForm();
+
+    await user.click(screen.getByRole("radio", { name: "Something else" }));
+    await user.type(
+      screen.getByLabelText("Briefly describe what you were doing"),
+      "Some stale description",
+    );
+    // Switch away from "other" before advancing — the description field
+    // disappears, but its value is still sitting in form state.
+    await user.click(screen.getByRole("radio", { name: "Apply for a scheme or benefit" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    await user.click(screen.getByRole("radio", { name: "Completed" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("checkbox", { name: "Site was slow or unavailable" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    // The review step never shows a Description row for a non-"other" task
+    // type, confirming the user never saw this value reflected back to them.
+    expect(screen.queryByText("Some stale description")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /I understand this is not an official grievance channel/,
+      }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: /I consent to this being reviewed/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    expect(mockSubmitExperience).toHaveBeenCalledWith(
+      PORTAL_ID,
+      expect.objectContaining({ taskDescription: undefined }),
+      "",
+    );
+  });
+
   it("shows a distinct rate-limited message and preserves entered values", async () => {
     const user = userEvent.setup();
     mockSubmitExperience.mockResolvedValue({

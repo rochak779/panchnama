@@ -187,7 +187,7 @@ describe("ExperienceSection", () => {
     renderSection();
     expect(
       await screen.findByText(
-        "A rating is not shown yet because too few people have rated this portal — an average is only published once at least 5 ratings have been collected.",
+        "A rating is not shown yet because fewer than 5 experiences have been shared for this portal — an average is only published once enough experiences have been collected to be meaningful.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Average rating/)).not.toBeInTheDocument();
@@ -249,6 +249,41 @@ describe("ExperienceSection", () => {
       expect(mockFetchPortalExperiences).toHaveBeenCalledWith(PORTAL_ID, { page: 2 }),
     );
     expect(await screen.findByRole("button", { name: /Next page/ })).toBeDisabled();
+  });
+
+  it("moves focus to the results container once the new page's data finishes loading, not before", async () => {
+    const user = userEvent.setup();
+    mockFetchPortalExperiences.mockResolvedValue(
+      populatedResult({ page: 1, pageSize: 1, total: 2, items: [makeItem({ submissionId: "sub-1" })] }),
+    );
+    renderSection();
+    await screen.findByText(/8 experiences have been shared/);
+
+    let resolveNextPage: ((value: FetchExperiencesResult) => void) | undefined;
+    mockFetchPortalExperiences.mockReturnValue(
+      new Promise((resolve) => {
+        resolveNextPage = resolve;
+      }),
+    );
+
+    const nextButton = screen.getByRole("button", { name: "Next page, page 2 of 2" });
+    await user.click(nextButton);
+
+    // Still loading: focus has not moved yet.
+    expect(await screen.findByText("Loading citizen experiences…")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: /Citizen experience results/ }),
+    ).not.toBeInTheDocument();
+
+    resolveNextPage!(
+      populatedResult({ page: 2, pageSize: 1, total: 2, items: [makeItem({ submissionId: "sub-2" })] }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("region", { name: "Citizen experience results, page 2 of 2" }),
+      ).toHaveFocus(),
+    );
   });
 
   it("never imports or references an audit-status field", () => {

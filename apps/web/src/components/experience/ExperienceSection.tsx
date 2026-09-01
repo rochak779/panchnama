@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
 import type { ExperienceTheme, TaskOutcome } from "@panchnama/schema";
 // Imported from the `./constants` subpath, not the package's default `.`
@@ -60,6 +60,14 @@ export function ExperienceSection({ portalId, portalName }: ExperienceSectionPro
   const [result, setResult] = useState<FetchExperiencesResult | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const resultsRef = useRef<HTMLDivElement>(null);
+  // The first fetch (mount) should never steal focus — only a page change
+  // the user actively triggered should move focus, and only once that new
+  // page's data has actually finished loading (never during the loading
+  // state itself).
+  const isInitialLoad = useRef(true);
+  const pendingFocusRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -67,11 +75,23 @@ export function ExperienceSection({ portalId, portalName }: ExperienceSectionPro
       if (cancelled) return;
       setResult(res);
       setLoading(false);
+      if (isInitialLoad.current) {
+        isInitialLoad.current = false;
+      } else {
+        pendingFocusRef.current = true;
+      }
     });
     return () => {
       cancelled = true;
     };
   }, [portalId, page]);
+
+  useEffect(() => {
+    if (!loading && pendingFocusRef.current) {
+      pendingFocusRef.current = false;
+      resultsRef.current?.focus();
+    }
+  }, [loading]);
 
   const shareEntryPoint = (
     <Link href={shareLink(portalId)} className={styles.shareLink}>
@@ -111,6 +131,7 @@ export function ExperienceSection({ portalId, portalName }: ExperienceSectionPro
               result={result}
               page={page}
               onPageChange={setPage}
+              resultsRef={resultsRef}
             />
           )
         ) : result && !result.ok ? (
@@ -129,16 +150,28 @@ interface PopulatedExperiencesProps {
   result: Extract<FetchExperiencesResult, { ok: true }>;
   page: number;
   onPageChange: (page: number) => void;
+  resultsRef: RefObject<HTMLDivElement | null>;
 }
 
-function PopulatedExperiences({ portalId, result, page, onPageChange }: PopulatedExperiencesProps) {
+function PopulatedExperiences({
+  portalId,
+  result,
+  page,
+  onPageChange,
+  resultsRef,
+}: PopulatedExperiencesProps) {
   const { summary, items, total, pageSize } = result;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const themes = topThemes(summary.themeCounts);
   const showRating = !summary.minimumDisplayThresholdApplied && summary.averageRating !== undefined;
 
   return (
-    <>
+    <div
+      ref={resultsRef}
+      tabIndex={-1}
+      role="region"
+      aria-label={`Citizen experience results, page ${page} of ${totalPages}`}
+    >
       <div className={styles.summary}>
         <p>
           {summary.approvedExperienceCount}{" "}
@@ -183,9 +216,9 @@ function PopulatedExperiences({ portalId, result, page, onPageChange }: Populate
           </p>
         ) : (
           <p>
-            A rating is not shown yet because too few people have rated this portal — an average
-            is only published once at least {MINIMUM_DISPLAY_THRESHOLD} ratings have been
-            collected.
+            A rating is not shown yet because fewer than {MINIMUM_DISPLAY_THRESHOLD} experiences
+            have been shared for this portal — an average is only published once enough
+            experiences have been collected to be meaningful.
           </p>
         )}
       </div>
@@ -251,6 +284,6 @@ function PopulatedExperiences({ portalId, result, page, onPageChange }: Populate
       <Link href={shareLink(portalId)} className={styles.shareLink}>
         Share your experience
       </Link>
-    </>
+    </div>
   );
 }
