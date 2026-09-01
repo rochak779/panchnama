@@ -1,0 +1,212 @@
+/**
+ * Deliberately distinct from `portal-detail.module.css`'s findings styling
+ * (implementation.md section 10.4/14): a tinted background, a bordered
+ * boundary, and a divider ahead of the section so this reads as a
+ * separate, moderated, first-person account register — never as more
+ * audit evidence.
+ */
+
+.section {
+  display: flex;
+  flex-direction: column;
+}
+
+.divider {
+  border: none;
+  border-top: var(--border-width-emphasis) solid var(--color-border-strong);
+  margin: 0 0 var(--space-6) 0;
+}
+
+.sectionInner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  background-color: var(--color-accent-surface);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent-strong);
+  font-style: italic;
+}
+
+.loading {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-secondary);
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-ink);
+}
+
+.summaryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.summaryHeading {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
+}
+
+.countList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-secondary);
+}
+
+.disclaimer {
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-hairline) dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  font-size: var(--font-size-xs);
+  color: var(--color-ink-muted);
+}
+
+.experienceList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.experienceItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background-color: var(--color-surface);
+  border-left: var(--border-width-emphasis) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+
+.experienceItemHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.experienceOutcome {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
+}
+
+.experienceDate {
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.themeTagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.themeTag {
+  padding: var(--space-1) var(--space-2);
+  border-radius: 999px;
+  background-color: var(--color-surface-secondary);
+  font-size: var(--font-size-xs);
+  color: var(--color-ink-secondary);
+}
+
+.experienceText {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-secondary);
+  line-height: var(--line-height-normal);
+}
+
+.experienceRating {
+  font-size: var(--font-size-xs);
+  color: var(--color-ink-muted);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.paginationButton {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.paginationButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.paginationStatus {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-secondary);
+}
+
+.removalContact {
+  font-size: var(--font-size-xs);
+  color: var(--color-ink-muted);
+  line-height: var(--line-height-normal);
+}
+
+.shareLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  border: var(--border-width-hairline) solid var(--color-accent);
+  background-color: var(--color-accent);
+  color: var(--color-ink-on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  width: fit-content;
+}
+
+.shareLink:hover {
+  background-color: var(--color-accent-strong);
+  border-color: var(--color-accent-strong);
+}
+
+@media (max-width: 480px) {
+  .sectionInner {
+    padding: var(--space-4);
+  }
+
+  .sectionHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

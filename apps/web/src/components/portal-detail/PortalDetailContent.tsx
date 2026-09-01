@@ -13,6 +13,7 @@ import {
 } from "@/lib/portalDetail";
 import { formatAuditDate } from "@/lib/formatDate";
 import { EmptyState } from "@/components/EmptyState";
+import { ExperienceSection } from "@/components/experience/ExperienceSection";
 import { EvidenceCallout } from "@/components/EvidenceCallout";
 import { ExternalLink } from "@/components/ExternalLink";
 import { SeverityMarker } from "@/components/status/SeverityMarker";
@@ -241,6 +242,8 @@ export function PortalDetailContent({
           />
         )}
       </section>
+
+      <ExperienceSection portalId={portal.id} portalName={portal.name} />
     </>
   );
 }

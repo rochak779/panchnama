@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, within } from "@testing-library/react";
 import { axe } from "jest-axe";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   EvidenceArtifact,
   Finding,
@@ -9,6 +9,23 @@ import type {
   PublishedPortalAssessment,
 } from "@panchnama/schema";
 import { PortalDetailContent } from "./PortalDetailContent";
+
+// Task 3 wiring test: PortalDetailContent is only responsible for passing
+// the right props to ExperienceSection in the right DOM position — its own
+// loading/populated/empty/error behavior is exercised in
+// ExperienceSection.test.tsx against the real component. Stubbing it here
+// keeps this file's existing tests (including the axe scan) from making a
+// real fetch call.
+vi.mock("@/components/experience/ExperienceSection", () => ({
+  ExperienceSection: ({ portalId, portalName }: { portalId: string; portalName: string }) => (
+    <section aria-labelledby="experience-heading">
+      <h2 id="experience-heading">Citizen experiences</h2>
+      <p>
+        Stubbed ExperienceSection for {portalId} / {portalName}
+      </p>
+    </section>
+  ),
+}));
 
 function makeAssessment(
   overrides: Omit<Partial<PublishedPortalAssessment>, "portal"> & {
@@ -278,5 +295,28 @@ describe("PortalDetailContent", () => {
       assessment: makeAssessment({ reviewedFindings: [finding] }),
     });
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("renders ExperienceSection with the portal's id and name, below Findings, with its own landmark heading", () => {
+    renderContent({
+      assessment: makeAssessment({ portal: { id: "portal-z", name: "Zebra Portal" } }),
+    });
+    expect(
+      screen.getByText("Stubbed ExperienceSection for portal-z / Zebra Portal"),
+    ).toBeInTheDocument();
+
+    const experienceHeading = screen.getByRole("heading", { name: "Citizen experiences" });
+    expect(experienceHeading.tagName).toBe("H2");
+
+    const findingsHeading = screen.getByRole("heading", { name: "Findings" });
+    // DOM order: the findings heading precedes the experience heading.
+    expect(
+      findingsHeading.compareDocumentPosition(experienceHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Both headings resolve to distinct landmark sections, not one merged
+    // container.
+    expect(experienceHeading.closest("section")).not.toBe(findingsHeading.closest("section"));
   });
 });
