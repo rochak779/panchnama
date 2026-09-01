@@ -4185,3 +4185,171 @@ duplication/hygiene items — fixed in one pass, re-reviewed clean.
   14) is the existing rule for which findings may ever be shown/exported —
   Session 16's `findings.json` generator must call it, not reimplement
   the rejected/unreviewed exclusion rule a third time.
+
+## Session 16 — Methodology, exports, and trust surfaces
+
+**Goal:** make the product's boundaries and reproducibility as visible as
+its findings (implementation.md section 14 / section 10.7-10.8).
+
+### Files changed
+
+- `apps/web/src/lib/methodologyContent.ts` (+ test, new) — the single
+  source of truth for methodology content: `CURRENT_METHODOLOGY_VERSION`
+  (cross-checked in tests against `data/fixtures/audit-run.json`'s real
+  `methodologyVersion`, not a second hand-typed literal),
+  `METHODOLOGY_VERSION_HISTORY` and its `sortedVersionHistory()` helper,
+  and every section 10.7 topic as prose or structured data
+  (`OBSERVED_ESTATE_RULES`, `INVENTORY_SOURCES_NOTE`,
+  `CRAWL_BOUNDARIES_NOTE`, `CHECK_DEFINITIONS` — derived from the
+  fixture's real `enabledChecks`, throwing if an id has no catalog entry
+  rather than rendering blank — `SEVERITY_CONFIDENCE_RULES`,
+  `HUMAN_REVIEW_PROCESS`, `EVIDENCE_RETENTION_NOTE`, `KNOWN_LIMITATIONS`
+  — read directly from the fixture's `limitations` array, not
+  duplicated — `ETHICAL_DISCLAIMER`, `EXPERIENCE_POLICY_SUMMARY`).
+- `apps/web/src/lib/exportGenerators.ts` (+ test, new) — the pure,
+  independently-testable logic behind the 5 public export files:
+  `buildAuditSummaryExport`, `buildPortalsExport`,
+  `buildFindingsExport` (calls `publishableFindings()` — never
+  reimplements the rejected/unreviewed exclusion rule), plus
+  `EXPORT_FILENAMES`, the one place all 5 filenames are declared.
+- `apps/web/scripts/build-exports.ts` (+ test, new) — a `tsx`-run
+  build-time script (following `packages/database`'s existing
+  `tsx src/scripts/*.ts` convention) writing `audit-summary.json`,
+  `portals.json`, `findings.json`, `assam-audit.csv` (via
+  `@panchnama/audit-cli`'s existing `buildCsvExport`, imported only
+  here — never under `apps/web/src`, so it never reaches the browser
+  bundle), and `methodology.json` into `apps/web/public/exports/`;
+  wired into `apps/web/package.json` as `build:exports`, run before both
+  `build` (`pnpm run build:exports && next build`) and `test`
+  (`pnpm run build:exports && vitest run` — added during the fix wave,
+  see Decisions).
+- `apps/web/src/app/methodology/page.tsx` (+ test, `.module.css`, new) —
+  renders every `methodologyContent.ts` export as a labeled, landmarked
+  section; check definitions as a `<dl>`; limitations as a `<ul>`;
+  version history via `sortedVersionHistory()`.
+- `apps/web/src/app/privacy/page.tsx` (+ test, new) — a public,
+  non-technical adaptation of `docs/experience-privacy-and-moderation.md`,
+  reusing Session 15's `experienceCopy.ts` `MODERATION_DISCLAIMER_COPY`
+  and `REMOVAL_CONTACT_COPY` verbatim (imported and rendered directly,
+  not re-authored) and containing zero internal file-path references
+  (tested).
+- `apps/web/src/app/exports/page.tsx` (+ test, `.module.css`, new) — the
+  download page: real `fs.statSync` size/mtime for each of the 5
+  `EXPORT_FILENAMES` entries, a graceful "unavailable" row (not a crash)
+  if a file is unexpectedly missing, and the changelog section via
+  `sortedVersionHistory()`.
+- `apps/web/src/app/__tests__/internal-links.test.ts` (new) — the "dead
+  internal-link scan": reads `SiteHeader.tsx`/`SiteFooter.tsx`/
+  `AuditContextBanner.tsx`/`IndependenceNotice.tsx`'s real source text
+  for every internal `href`, and asserts each resolves to a real
+  `page.tsx` under `apps/web/src/app/` — a genuine filesystem check, not
+  a hardcoded list, so it fails if a route is ever renamed or deleted.
+
+### Decisions made
+
+- **`apps/web/package.json`'s `test` script runs `build:exports` first**
+  (`pnpm run build:exports && vitest run`), not just `build`. Caught only
+  by the whole-branch review, not any per-task review: `apps/web/public/
+  exports/` is `.gitignore`d, and `exports/page.test.tsx` renders against
+  that REAL directory (not a mock) to prove download integrity — but the
+  only thing that populated it during a test run was a *different* test
+  file's `beforeAll`, with nothing sequencing the two under Vitest's
+  default parallel file execution. On a genuinely fresh clone this was a
+  real race, not just a style nit — fixed the same way `build` already
+  guarantees the files exist first.
+- **`EXPORT_FILENAMES` lives in one place** (`exportGenerators.ts`),
+  imported by the writer script, the download page, and both scripts'
+  tests — the 5 filenames were originally typed out independently in 3
+  places (another whole-branch-review catch), which meant a rename in
+  the generator could have silently turned an `/exports` row into
+  "Unavailable" with no failing test.
+- **`.tableWrap` scroll containers get `tabIndex={0}` + `role="region"`
+  + a per-table `aria-label`.** A horizontally-scrollable region with no
+  focusable element inside it fails WCAG 2.1.1 for a keyboard-only
+  user — `jest-axe` cannot detect this under jsdom, which is exactly why
+  it passed every per-task review before the whole-branch pass caught it
+  by direct inspection.
+- **No experiences export exists.** implementation.md section 10.8 makes
+  a public experiences export explicitly conditional ("only if privacy
+  review and product research justify it," which has not happened) —
+  this session's 5 files are audit-data-only, verified by reading all 5
+  generated files directly rather than trusting the generator's own
+  claim about itself.
+- **The fixture's `enabledChecks` ids don't exactly match the real rule
+  engine's ruleId strings** in `packages/audit-core` (e.g. `crawl.
+  blocked.v1` vs. the engine's actual `availability.automation-blocked.
+  v1`). Traced into the real rule engine source during Task 1's review
+  and confirmed the generated description is a faithful behavioral
+  account despite the id mismatch — a pre-existing fixture-data
+  inconsistency, left as a follow-up rather than something this session
+  edits `data/fixtures/audit-run.json` to fix.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/web run test
+ Test Files  50 passed (50)
+      Tests  401 passed (401)
+
+$ pnpm lint        # exit 0, no output
+$ pnpm typecheck   # 6 workspace projects — exit 0
+$ pnpm test        # all workspaces — exit 0
+$ pnpm build       # next build — /methodology, /privacy, /exports all
+                    #   prerender as static; build:exports runs first and
+                    #   produces all 5 real files under
+                    #   apps/web/public/exports/ — exit 0
+```
+
+Built via subagent-driven development: 3 tasks, each independently
+implemented and reviewed with zero fix rounds at the task level, then one
+whole-branch review (most capable available model) that caught 1
+Important cross-task issue no single task's diff could reveal (the
+CI test/build ordering race — created jointly by Task 1's `.gitignore`
+entry and Task 3's real-directory test) plus 6 minor items — fixed 5 of
+7 in one pass (the other 2 explicitly deferred with reasons), re-reviewed
+clean.
+
+### Known limitations (deferred, explicit)
+
+- **`formatFileSize` is KB-only.** A future multi-megabyte export (once
+  Session 17+ replaces fixtures with a real, larger Assam audit) would
+  render as e.g. "5120.0 KB" instead of switching to MB. Deferred since
+  no current fixture-derived file approaches that size.
+- **`build-exports.ts` destructures `EXPORT_FILENAMES` positionally** to
+  assign each generator's output to a filename — a reviewer-noted
+  residual: reordering the array (not renaming an entry) could silently
+  swap which generator writes which filename with no type error. Every
+  other consumer (`exports/page.tsx`, both scripts' tests) looks up by
+  name instead, so this is narrow and currently harmless; flagged rather
+  than fixed in a third fix wave for a session already twice-reviewed.
+- **The fixture's `enabledChecks` ids don't match the real rule engine's
+  ruleId strings** (see Decisions above) — a data-cleanup item for
+  whichever future session next touches `data/fixtures/audit-run.json`
+  or `packages/audit-core`'s rule ids.
+
+### Next session prerequisites (Session 17 — Assam source research and controlled pilot crawl)
+
+- Before any live request: the §12.5 legal-risk and live-crawl approval
+  gate (ADR, target-host register, sign-off) must be recorded — this is
+  a prerequisite check, not part of Sessions 15/16's scope, and remains
+  outstanding.
+- `apps/web/src/lib/methodologyContent.ts`'s `CHECK_DEFINITIONS` reads
+  `data/fixtures/audit-run.json`'s `enabledChecks` and throws if an id
+  has no catalog entry — when Session 17 replaces fixtures with real
+  Assam data, either the real run's `enabledChecks` must use ids this
+  catalog already recognizes, or the catalog needs new entries added
+  alongside the real ids (recommended: reconcile the id mismatch noted
+  above at the same time, rather than carrying it into real data).
+- `apps/web/src/lib/exportGenerators.ts` reads from
+  `getFixtureAuditRun()`/`getFixturePortalAssessments()` — the same
+  functions every other page already uses — so swapping fixtures for
+  real `data/published/<runId>/` output (once Session 17+ produces it)
+  should not require changing this module's logic, only its data source,
+  matching the pattern documented in `publishedFixtures.ts` since
+  Session 11.
+- The `apps/web/public/exports/` directory and `build:exports` npm
+  script are now load-bearing for both `pnpm build` and `pnpm test` —
+  any future change to `data/fixtures/` structure or to
+  `publishedFixtures.ts`'s function signatures must keep
+  `build-exports.ts` working, since a broken generator now fails the
+  whole app's build, not just an isolated export feature.
