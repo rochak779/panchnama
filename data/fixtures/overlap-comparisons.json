@@ -1,0 +1,28 @@
+[
+  {
+    "id": "overlap-cmp-0001",
+    "schemaVersion": "1.0.0",
+    "runId": "assam-2026-09-15-r1",
+    "portalIdA": "portal-agri-assam",
+    "portalIdB": "portal-agri-farmers-welfare",
+    "status": "completed",
+    "reviewedAt": "2026-09-15T06:00:00Z",
+    "reviewer": "editor-1",
+    "intendedUserA": "General public seeking department information",
+    "intendedUserB": "Registered farmers seeking scheme benefits",
+    "serviceOrTaskA": "Publish department news, schemes, and contacts",
+    "serviceOrTaskB": "Enroll in and track farmer welfare schemes",
+    "jurisdictionA": "Assam",
+    "jurisdictionB": "Assam",
+    "transactionStageA": "informational",
+    "transactionStageB": "transactional",
+    "responsibleAuthorityA": "Department of Agriculture",
+    "responsibleAuthorityB": "Department of Agriculture",
+    "linksOrRedirectsBetween": true,
+    "materialSimilarities": ["Same parent department", "Both reference the same scheme names"],
+    "materialDifferences": ["Portal A is informational only; Portal B accepts enrollments"],
+    "conclusion": "possible_overlap",
+    "uncertaintyNote": "Mandate boundary between the two portals is not clearly documented.",
+    "evidenceRefs": ["evidence-note-0002"]
+  }
+]

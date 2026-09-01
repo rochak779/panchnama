@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   getFixtureAuditRun,
+  getFixtureEvidenceArtifacts,
+  getFixtureOverlapComparisons,
   getFixturePortalAssessments,
   InvalidFixtureDataError,
 } from "./publishedFixtures";
@@ -36,6 +38,27 @@ describe("getFixtureAuditRun / getFixturePortalAssessments (real repo fixtures)"
     const healthValues = assessments.map((a) => a.technicalHealth);
     expect(healthValues).toContain("healthy");
     expect(healthValues).toContain("degraded");
+  });
+});
+
+describe("getFixtureEvidenceArtifacts / getFixtureOverlapComparisons (real repo fixtures)", () => {
+  it("loads and validates the real data/fixtures/evidence-artifacts.json, including an unreviewed one for the exclusion test", () => {
+    const artifacts = getFixtureEvidenceArtifacts();
+    expect(artifacts.length).toBeGreaterThan(0);
+    expect(artifacts.some((a) => a.privacyReviewed === true)).toBe(true);
+    expect(artifacts.some((a) => a.privacyReviewed === false)).toBe(true);
+  });
+
+  it("loads and validates the real data/fixtures/overlap-comparisons.json", () => {
+    const comparisons = getFixtureOverlapComparisons();
+    expect(comparisons.length).toBeGreaterThan(0);
+    expect(comparisons[0]?.conclusion).toBe("possible_overlap");
+  });
+
+  it("throws InvalidFixtureDataError for malformed evidence-artifacts.json", () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "evidence-artifacts.json"), JSON.stringify({ not: "an array" }));
+    expect(() => getFixtureEvidenceArtifacts(dir)).toThrow(InvalidFixtureDataError);
   });
 });
 

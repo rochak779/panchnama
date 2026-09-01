@@ -2,8 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   auditRunSchema,
+  evidenceArtifactSchema,
+  portalOverlapComparisonSchema,
   publishedPortalAssessmentSchema,
   type AuditRun,
+  type EvidenceArtifact,
+  type PortalOverlapComparison,
   type PublishedPortalAssessment,
 } from "@panchnama/schema";
 
@@ -69,6 +73,53 @@ export function getFixturePortalAssessments(
   }
   return raw.map((entry, index) => {
     const result = publishedPortalAssessmentSchema.safeParse(entry);
+    if (!result.success) {
+      throw new InvalidFixtureDataError(`${path} [index ${index}]`, result.error);
+    }
+    return result.data;
+  });
+}
+
+/**
+ * Session 14 ("Portal evidence pages") addition, same validated-fixture
+ * contract as the two functions above. A `Finding.evidenceRefs` entry is
+ * only an id — the portal detail page needs the actual `EvidenceArtifact`
+ * records ("affected/source URLs, attempts, observations, and artifacts")
+ * to render evidence details, so this reads `data/fixtures/evidence-artifacts.json`
+ * the same way.
+ */
+export function getFixtureEvidenceArtifacts(
+  fixturesDir: string = resolveFixturesDir(),
+): EvidenceArtifact[] {
+  const path = join(fixturesDir, "evidence-artifacts.json");
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  if (!Array.isArray(raw)) {
+    throw new InvalidFixtureDataError(path, new Error("expected a JSON array"));
+  }
+  return raw.map((entry, index) => {
+    const result = evidenceArtifactSchema.safeParse(entry);
+    if (!result.success) {
+      throw new InvalidFixtureDataError(`${path} [index ${index}]`, result.error);
+    }
+    return result.data;
+  });
+}
+
+/**
+ * Session 14 addition — `data/fixtures/overlap-comparisons.json`, read the
+ * same way, for the portal detail page's "related/possibly overlapping
+ * portals when reviewed" (implementation.md section 10.4).
+ */
+export function getFixtureOverlapComparisons(
+  fixturesDir: string = resolveFixturesDir(),
+): PortalOverlapComparison[] {
+  const path = join(fixturesDir, "overlap-comparisons.json");
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  if (!Array.isArray(raw)) {
+    throw new InvalidFixtureDataError(path, new Error("expected a JSON array"));
+  }
+  return raw.map((entry, index) => {
+    const result = portalOverlapComparisonSchema.safeParse(entry);
     if (!result.success) {
       throw new InvalidFixtureDataError(`${path} [index ${index}]`, result.error);
     }

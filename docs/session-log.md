@@ -3838,3 +3838,161 @@ real select's `onChange` would call.)
   `EvidenceCallout`, `EmptyState` remain the components to reuse for
   findings/evidence display — do not re-derive a second presentation for
   severity/health/action.
+
+## Session 14 — Portal evidence pages
+
+**Goal:** Make each assessment understandable, traceable, and challengeable
+(implementation.md section 14 / section 10.4).
+
+### Files changed
+
+- `apps/web/src/lib/portalDetail.ts` (+ test, new) — pure, unit-tested
+  publication-gate logic: `publishableFindings` (only `reviewStatus`
+  `"reviewed"` or `"not_assessable"` findings ever reach a page —
+  `"pending_review"`/`"automated_observation"`/`"rejected"` never do, per
+  AGENTS.md's "never publish unreviewed adverse findings"),
+  `groupFindingsByCategory`, `publishedEvidenceForFinding` (a
+  `Finding.evidenceRefs` id only renders if it resolves to a real artifact
+  *and* that artifact's `privacyReviewed === true` — the exact rule
+  `evidence.ts`'s own doc comment states but the schema layer can't
+  enforce by itself), and `overlapContextForFinding` (resolves a
+  `possible_overlap` finding's related portal only from a completed,
+  `possible_overlap`-concluded comparison, per implementation.md section
+  7.6).
+- `apps/web/src/components/portal-detail/PortalDetailContent.tsx` (+
+  test, new) — the portal detail content: identity/department/domain/
+  official-status provenance, technical health/continuing role/suggested
+  action as three distinct fields (never blended), crawl coverage,
+  findings grouped by category (each showing severity, confidence, review
+  status, observed dates, affected URLs, evidence, limitations, and
+  related-overlap block when present), and an empty state for a
+  no-findings portal.
+- `apps/web/src/app/portals/[portalId]/page.tsx` (+ test,
+  `portal-detail.module.css`, new) — the static route:
+  `generateStaticParams` sourced from `getFixturePortalAssessments()`
+  (matching Session 13's own prerequisite note), `notFound()` for an
+  unknown id, `generateMetadata` using the real portal name.
+- `apps/web/src/components/ExternalLink.tsx` (+ test, new) — the "safe
+  external-link behavior" implementation.md asks for:
+  `target="_blank" rel="noopener noreferrer"` on every outbound link
+  (canonical URL, alternate URLs, affected URLs, evidence source URLs).
+- `apps/web/src/lib/publishedFixtures.ts` (+ test) — two more loader
+  functions, `getFixtureEvidenceArtifacts`/`getFixtureOverlapComparisons`,
+  following the same build-time validate-or-throw contract as the
+  existing two.
+- `data/fixtures/evidence-artifacts.json` (new) — one `EvidenceArtifact`
+  per existing `evidenceRefs` id, plus `evidence-note-0002b`
+  (`privacyReviewed: false`, to exercise the exclusion rule for real) and
+  `evidence-rejected-0001` (cited only by the new rejected finding below).
+- `data/fixtures/overlap-comparisons.json` (new) — the one
+  `PortalOverlapComparison` (`overlap-cmp-0001`) the agri-portal overlap
+  finding already referenced by id since Session 12 but that didn't exist
+  as a real record until now.
+- `data/fixtures/portal-assessments.json` — `finding-overlap-0001` now
+  cites two evidence refs (one reviewed, one not, for the exclusion test);
+  added `finding-rejected-0001` to `portal-agri-assam` (a `critical`,
+  `reviewStatus: "rejected"` finding that must never render); split
+  `finding-availability-0002`'s (transport portal) single evidence ref
+  into two (`evidence-http-0003a`/`b`) for the "multiple sources" test.
+
+### Decisions made
+
+- **Publication-gate logic (`publishableFindings`/`publishedEvidenceForFinding`)
+  lives in `lib/portalDetail.ts`, not inline in the component.** These are
+  the two rules in this whole codebase where a bug means real harm — an
+  unreviewed adverse finding or an unreviewed-privacy evidence artifact
+  reaching a published page — so they're isolated, named, and directly
+  unit-tested (including the exact "rejected/unpublished evidence
+  exclusion" scenario from implementation.md's own test list) rather than
+  buried in JSX conditionals.
+- **Findings grouped by category (each finding still shows its own
+  severity via `SeverityMarker`), not a top-level severity-then-category
+  nesting.** implementation.md section 14 says "grouped by severity/
+  category" without specifying which is primary; category was chosen
+  because a reviewer investigating one portal is more likely to ask "what
+  kinds of problems did you find" than "show me everything advisory
+  first" — the overview page (Session 12) already exists for a severity-
+  first, cross-portal view.
+- **`ExternalLink` is one small shared component, not a page-specific
+  helper**, since every outbound link across identity fields, affected
+  URLs, and evidence source URLs needs the identical
+  `rel="noopener noreferrer"` treatment — one place to get it right.
+- **Evidence fixtures deliberately include one `privacyReviewed: false`
+  artifact and one `reviewStatus: "rejected"` finding**, cited by real IDs
+  from real findings, specifically so the exclusion rules are exercised by
+  the real fixture data end to end (in `page.test.tsx` and the real-browser
+  verification below), not only by synthetic unit-test data.
+- **`overlapContextForFinding` takes the full assessment list only to
+  resolve the *other* portal's name/link** — it never reads or alters the
+  current portal's own findings from it, keeping each portal's page a
+  function of its own assessment plus two small, independently-loaded
+  reference datasets (evidence artifacts, overlap comparisons).
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/web run test
+ Test Files  36 passed (36)
+      Tests  284 passed (284)   # 250 from Session 13 + 14 portalDetail
+                                 # + 11 PortalDetailContent + 5 page.test.tsx
+                                 # + 1 ExternalLink + 3 publishedFixtures additions
+
+$ pnpm lint        # exit 0, no output
+$ pnpm typecheck   # 6 workspace projects — exit 0
+$ pnpm test        # all workspaces — exit 0
+$ pnpm build       # next build — all 6 /portals/<id> routes prerender as
+                    #   static (SSG via generateStaticParams) — exit 0
+$ pnpm format      # prettier — reformatted new files to project style
+```
+
+Manual end-to-end / visual verification (real `next start` on the real
+fixtures directory, real browser): confirmed `/portals/portal-agri-assam`,
+`/portals/portal-education-assam` return 200 and `/portals/does-not-exist`
+returns a real 404. On the agri portal's page: the overlap finding shows
+exactly one evidence item (`evidence-note-0002`) — `evidence-note-0002b`
+(`privacyReviewed: false`) never appears anywhere on the rendered page, and
+neither does `finding-rejected-0001`'s title anywhere on the page; the
+"Related portal" block correctly links to "Assam Farmers Welfare Portal,"
+and clicking it navigates to that portal's own real page with its own
+distinct technical health ("Degraded"). On the transport portal's page:
+both `evidence-http-0003a` and `evidence-http-0003b` render as separate
+evidence items under the same finding, each with its own captured
+timestamp and source link — confirming "multiple sources" for real.
+
+### Known limitations (deferred, explicit)
+
+- **No screenshot/image evidence actually renders as an image** — the one
+  `type: "screenshot"` evidence artifact (education portal's CAPTCHA
+  block) renders through the same generic `EvidenceCallout` text
+  presentation as every other evidence type (its `description` field, not
+  an embedded image). implementation.md section 10.4 says "screenshots
+  *or* text evidence where useful," and no real screenshot binary exists
+  in this fixture-only build (Session 17+ produces real crawl artifacts);
+  rendering an actual image is deferred until real screenshot storage
+  exists.
+- **`continuingRole`'s four values get a hand-written label sentence
+  (`CONTINUING_ROLE_LABELS`) rather than reusing `statusTokens.ts`.**
+  `statusTokens.ts` only maps `TechnicalHealth`/`Severity`/`SuggestedAction`
+  (Session 11); `continuingRole` was never added there, and this session
+  didn't add a fourth icon+tone mapping for it since implementation.md
+  doesn't ask for `continuingRole` to carry a status-badge visual — it's
+  prose, not a health/severity signal.
+- **`/exports`, `/methodology`, `/privacy` remain unbuilt** (Session 16)
+  — the same documented, expected gap carried forward from Sessions 11–13.
+
+### Next session prerequisites (Session 15 — Experience submission and portal experience UI)
+
+- `PortalDetailContent` is the file to extend with the citizen-experience
+  summary/entry-point section implementation.md section 10.4 lists last
+  ("a clearly separate citizen-experience summary... an entry point to
+  share an experience") — Session 10's `/api/experiences` and
+  `/api/portals/[portalId]/experiences` routes already exist and are
+  untouched by this session; Session 15 wires the UI on top of them.
+- `apps/web/src/lib/experienceOptions.ts`/`experienceReads.ts` (Session
+  10) are the existing task/theme option and read-side contracts to reuse
+  for the submission form and approved-experience list — do not re-derive
+  a second options list.
+- Session 14's `ExternalLink` and `EvidenceCallout` patterns are available
+  for Session 15's approved-experience display, though experience styling
+  should stay visually distinct from audit evidence per implementation.md
+  section 14's explicit instruction for that session.
