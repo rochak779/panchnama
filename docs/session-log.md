@@ -3996,3 +3996,192 @@ timestamp and source link — confirming "multiple sources" for real.
   for Session 15's approved-experience display, though experience styling
   should stay visually distinct from audit evidence per implementation.md
   section 14's explicit instruction for that session.
+
+## Session 15 — Experience submission and portal experience UI
+
+**Goal:** add the public experience flow after the portal pages and design
+system exist (implementation.md section 14 / section 10.5-10.6).
+
+### Files changed
+
+- `apps/web/src/lib/experienceLabels.ts` (+ test, new) — human-readable
+  label maps for every `TaskOutcome`/`ExperienceTheme`/`DeviceType`/
+  `TaskTypeOption` value, importing the value lists from
+  `@panchnama/schema`/`experienceOptions.ts` rather than redeclaring them.
+- `apps/web/src/lib/experienceCopy.ts` (+ test, new) — the canonical
+  consent/privacy/moderation copy blocks (`PRIVACY_WARNING_COPY`,
+  `NOT_A_GRIEVANCE_CHANNEL_COPY`, `CONSENT_TO_PUBLISH_COPY`,
+  `MODERATION_DISCLAIMER_COPY`, `REMOVAL_CONTACT_COPY`,
+  `SHARE_FORM_INTRO_COPY`), sourced from
+  `docs/experience-privacy-and-moderation.md` — the single place every
+  policy claim in the UI is written, so the form and the approved-list
+  section can never state the policy two different ways.
+- `apps/web/src/lib/experienceApiClient.ts` (+ test, new) — typed `fetch`
+  wrappers (`submitExperience`, `fetchPortalExperiences`) around the
+  existing `POST /api/experiences`/`GET /api/portals/:portalId/experiences`
+  routes, mapping every real response shape from `apiResponses.ts` (201
+  pending, 400 invalid, 403 forbidden, 429 rate-limited, 503 unavailable)
+  plus a `network` case into discriminated-union results a component can
+  switch on without touching `fetch`/status codes directly.
+- `apps/web/src/components/VisuallyHidden.tsx` (+ test, `.module.css`,
+  new) — a small clip-based visually-hidden component, used by the form's
+  honeypot field.
+- `apps/web/src/components/experience/ShareExperienceForm.tsx` (+ test,
+  `.module.css`, new) — the 5-stage staged form (context → outcome →
+  what-happened → privacy/consent → review-and-submit) as one component
+  with internal step state, not five routes: per-step accessible
+  validation with a focus-managed error summary, a honeypot field
+  (`website`) excluded from both tab order and the accessibility tree,
+  double-submit prevention via a synchronous ref guard (not just a
+  disabled button), all 5 post-submit states (success/invalid/rate-
+  limited/unavailable/network) with distinct copy, and `sessionStorage`
+  draft preservation on recoverable errors (cleared on success).
+- `apps/web/src/app/portals/[portalId]/share-experience/page.tsx` (+
+  test, new) — the static route hosting the form, mirroring Session 14's
+  `generateStaticParams`/`notFound()` pattern.
+- `apps/web/src/components/experience/ExperienceSection.tsx` (+ test,
+  `.module.css`, new) — the approved-experience summary/list: loading,
+  empty, unavailable, and network states; outcome distribution and top
+  themes; a correctly-worded rating-omission explanation gated on
+  `PortalExperienceSummary.minimumDisplayThresholdApplied` (approved-
+  experience count, not rating count); paginated redacted accounts
+  (`publicText`, never `taskDescription`'s raw form or any personal
+  field); the moderation disclaimer and removal-contact copy; and
+  focus management after a pagination page-change resolves.
+- `apps/web/src/components/portal-detail/PortalDetailContent.tsx` (+3
+  lines) — appends `<ExperienceSection>` after the findings section, its
+  own landmark heading, visually separated (divider + distinct
+  background/border treatment) from the audit evidence above it. No
+  existing prop, export, or audit-evidence rendering touched.
+- `apps/web/src/lib/experienceOptions.ts` — one import line repointed to
+  `@panchnama/database/constants` (see Decisions below).
+- `packages/database/package.json` — one additive `exports` entry,
+  `"./constants": "./dist/constants.js"`, alongside the existing default
+  entry.
+
+### Decisions made
+
+- **A `@panchnama/database/constants`-only import boundary for client
+  components.** `experienceOptions.ts`/`ExperienceSection.tsx`/
+  `ShareExperienceForm.tsx` all run in the browser (`"use client"` or
+  imported by one), but `@panchnama/database`'s default entry re-exports
+  `client.ts`/`env.ts`, which pull in the Postgres driver and `node:fs` —
+  bundling that into the browser broke `next build`. Rather than avoid
+  every shared constant (`EXPERIENCE_THEME_VALUES`,
+  `MINIMUM_DISPLAY_THRESHOLD`, `TASK_DESCRIPTION_MAX_LENGTH`,
+  `FREE_TEXT_MAX_LENGTH`) and risk them silently drifting from the
+  server's real values, this session added one narrow, additive,
+  side-effect-free subpath export exposing only `packages/database/src/
+  constants.ts` (which itself imports nothing) — the package's default
+  entry point and every existing server-side consumer are untouched.
+  Confirmed by a real `next build` after the change, not just a unit test.
+- **`fetchPortalExperiences`/`submitExperience` return discriminated
+  unions, never throw.** Every branch a component can hit —
+  success, each real error `status` string, and a caught network
+  exception — is a distinct, named `kind`, so `ShareExperienceForm`/
+  `ExperienceSection` never need a try/catch of their own around a fetch
+  call; they switch on the result.
+- **The rating-omission sentence is gated on approved-experience count,
+  not rating count**, matching `PortalExperienceSummary.
+  minimumDisplayThresholdApplied`'s actual server-side computation
+  (`packages/database/src/repository/reads.ts`). An earlier draft of this
+  sentence (caught in the whole-branch review, not a per-task review)
+  cited "5 ratings" when the real gate is 5 *approved experiences* — a
+  wrong claim about the product's own aggregation rule is the kind of bug
+  this project cannot afford to ship, given its whole premise is
+  methodological honesty.
+- **`taskDescription` is only ever included in the submission payload
+  when `taskType === "other"`**, matching what the review step (stage 5)
+  actually shows the user before they submit — a user who typed a
+  description under "Other," then changed `taskType`, would otherwise
+  submit text they never saw reflected on their own confirmation screen.
+- **Focus moves to the success panel on submit, and to the results
+  region after a pagination page-change resolves** — both unmount/replace
+  their preceding focused element (the submit button; the Next/Previous
+  button) with no browser-default focus target, so without an explicit
+  `tabIndex={-1}` + focus call, a screen-reader/keyboard user would land
+  on `<body>` with no announcement. Mirrors the pattern the error summary
+  already used.
+- **One canonical copy constant per policy claim in `experienceCopy.ts`**,
+  including `SHARE_FORM_INTRO_COPY` (added during the fix wave, not the
+  original task) once a second, independently-worded anonymity-reminder
+  sentence was found hardcoded in the form's intro — consistent with the
+  file's existing one-constant-per-claim shape (`PRIVACY_WARNING_COPY`
+  covers the step-3 free-text warning specifically; `SHARE_FORM_INTRO_COPY`
+  covers the form-wide anonymity statement; the two claims overlap in
+  substance but are scoped to different places in the form, matching how
+  the rest of this file is organized).
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/web run test
+ Test Files  43 passed (43)
+      Tests  352 passed (352)
+
+$ pnpm lint        # exit 0, no output
+$ pnpm typecheck   # 6 workspace projects — exit 0
+$ pnpm test        # all workspaces — exit 0
+$ pnpm build       # next build — all routes including the new
+                    #   /portals/<id>/share-experience prerender as
+                    #   static (SSG) — exit 0, confirms the
+                    #   @panchnama/database/constants bundle boundary
+                    #   actually holds
+$ pnpm format      # prettier — no unformatted files
+```
+
+Built via subagent-driven development: 3 tasks, each independently
+implemented and reviewed (1 fix round on Task 3 — a reviewer-caught
+inaccurate justification for avoiding a constant import, fixed by using
+the subpath export instead of hand-writing a number-free sentence), then
+one whole-branch review (dispatched on the most capable available model)
+that caught 4 cross-task issues no single task's diff could reveal on its
+own (the rating-threshold miswording, the stale-`taskDescription` gap, the
+two dropped-focus states, and a missing test file) plus 6 minor
+duplication/hygiene items — fixed in one pass, re-reviewed clean.
+
+### Known limitations (deferred, explicit)
+
+- **`occurredOn`'s free-text precision leaks into the UI's date range.**
+  The backend derives `earliestExperienceDate`/`latestExperienceDate` from
+  `occurredOn ?? createdAt`, and `occurredOn` is an intentionally free-form
+  string ("August 2026") that `new Date()`/`formatAuditDate` parses to a
+  specific day (1 August) — so the approved-experience summary can display
+  a day-level date range the submitter never actually gave to that
+  precision. This is a backend-schema-level quirk surfacing as a UI claim,
+  not something Session 15's frontend-only scope can fix by itself;
+  deferred to whichever future session next touches `occurredOn`'s
+  handling.
+- **`fetchPortalExperiences`'s 200-branch casts response fields
+  (`pageSize as number`, etc.) without a runtime shape guard.** A
+  malformed same-origin API response would currently produce `NaN`
+  pagination values rather than falling back to the `unavailable` state.
+  Low risk (the API route is this same codebase's own, schema-typed
+  handler), deferred rather than adding a second validation layer this
+  session didn't scope.
+- **`/exports`, `/methodology`, `/privacy` remain unbuilt** (Session 16)
+  — the same documented, expected gap carried forward from Sessions
+  11-14. `/privacy`'s destination now specifically needs
+  `experienceCopy.ts`'s `REMOVAL_CONTACT_COPY` reused verbatim (see
+  Session 16 prerequisites below), not restated.
+
+### Next session prerequisites (Session 16 — Methodology, exports, and trust surfaces)
+
+- `apps/web/src/lib/experienceCopy.ts`'s `REMOVAL_CONTACT_COPY` and
+  `MODERATION_DISCLAIMER_COPY` are the existing canonical copy for the
+  `/privacy` page to reuse — do not re-author the removal-contact
+  procedure or moderation policy a second time.
+- The `@panchnama/database/constants` subpath (`packages/database/
+  package.json`) is now the established, build-verified pattern for any
+  client-safe constant this session's export-file generator or pages need
+  from `@panchnama/database` — reuse it rather than adding a new
+  workaround for the same Postgres-driver-in-the-bundle problem.
+- `data/fixtures/audit-run.json`'s `methodologyVersion`/`enabledChecks`/
+  `limitations` fields are the single source of truth Session 16's
+  methodology content and generated `methodology.json`/`audit-summary.json`
+  exports must read from (via `publishedFixtures.ts`'s existing
+  `getFixtureAuditRun()`), not a hand-written duplicate.
+- `apps/web/src/lib/portalDetail.ts`'s `publishableFindings()` (Session
+  14) is the existing rule for which findings may ever be shown/exported —
+  Session 16's `findings.json` generator must call it, not reimplement
+  the rejected/unreviewed exclusion rule a third time.
