@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ExperienceTheme, TaskOutcome } from "@panchnama/schema";
+// Imported from the `./constants` subpath, not the package's default `.`
+// entry point — see `apps/web/src/lib/experienceOptions.ts` for why: the
+// default entry pulls in the Postgres driver and `node:fs`/`node:path`,
+// which breaks a client bundle. `./constants` is a plain, side-effect-free
+// values module, so this stays client-bundle-safe.
+import { MINIMUM_DISPLAY_THRESHOLD } from "@panchnama/database/constants";
 import { EXPERIENCE_THEME_LABELS, TASK_OUTCOME_LABELS } from "@/lib/experienceLabels";
 import { MODERATION_DISCLAIMER_COPY, REMOVAL_CONTACT_COPY } from "@/lib/experienceCopy";
 import { fetchPortalExperiences, type FetchExperiencesResult } from "@/lib/experienceApiClient";
@@ -178,7 +184,8 @@ function PopulatedExperiences({ portalId, result, page, onPageChange }: Populate
         ) : (
           <p>
             A rating is not shown yet because too few people have rated this portal — an average
-            is only published once enough ratings have been collected to be meaningful.
+            is only published once at least {MINIMUM_DISPLAY_THRESHOLD} ratings have been
+            collected.
           </p>
         )}
       </div>

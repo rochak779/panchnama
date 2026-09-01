@@ -186,7 +186,9 @@ describe("ExperienceSection", () => {
     );
     renderSection();
     expect(
-      await screen.findByText(/A rating is not shown yet because too few people have rated/),
+      await screen.findByText(
+        "A rating is not shown yet because too few people have rated this portal — an average is only published once at least 5 ratings have been collected.",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Average rating/)).not.toBeInTheDocument();
   });
