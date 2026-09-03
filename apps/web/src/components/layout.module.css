@@ -87,7 +87,10 @@
 }
 
 .bannerLabel {
-  color: var(--color-ink-muted);
+  /* color-ink-muted fails WCAG AA (4.34:1) against this banner's
+     surface-secondary background; color-ink-secondary (7.59:1) is the
+     next-darkest design-system tier and clears 4.5:1 comfortably. */
+  color: var(--color-ink-secondary);
 }
 
 .bannerValue {

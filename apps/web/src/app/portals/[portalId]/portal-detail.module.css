@@ -164,3 +164,10 @@
 .overlapBlock ul {
   padding-left: var(--space-5);
 }
+
+/* .fieldLabel's default color-ink-muted (4.34:1) fails WCAG AA against
+   this block's surface-secondary background; color-ink-secondary
+   (7.59:1) is the next-darkest design-system tier and clears 4.5:1. */
+.overlapBlock .fieldLabel {
+  color: var(--color-ink-secondary);
+}

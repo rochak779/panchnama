@@ -29,7 +29,7 @@ export function AuditContextBanner({ auditRun }: AuditContextBannerProps) {
     : `started ${formatAuditDate(auditRun.startedAt)}`;
 
   return (
-    <div className={styles.banner}>
+    <div className={styles.banner} role="region" aria-label="Audit context">
       <div className={styles.bannerInner}>
         <span className={styles.bannerItem}>
           <span className={styles.bannerLabel}>Audited:</span>
