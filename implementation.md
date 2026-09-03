@@ -1920,6 +1920,14 @@ Do not begin a session until the previous session's exit criteria pass. If an AI
 
 **Suggested commit:** `data: add sourced Assam inventory and pilot observations`
 
+**Status as of 2026-09-03 — parked mid-session, deliberately:**
+
+- Done: §12.5 gate recorded (`docs/architecture-decisions/0001-live-crawl-legal-risk-acceptance.md`, `docs/target-host-register.md`); seed sources corrected in `config/sources.assam.yaml`; a real 177-portal inventory built via the new `assam-igod-directory` source (igod.gov.in — a central-government directory, not Assam's own), with a full reachability sweep (88 reachable / 89 unreachable from the development environment); a clean 5-portal smoke crawl run and inspected.
+- Not done: deciding how to handle the ~89 unreachable/geoblocked portals (`not_assessable` vs. running the crawl from Indian-hosted infrastructure), running the bounded full crawl across the reachable set, and preserving that as the final dated raw run. This session's own exit criteria ("a dated raw Assam audit exists") is therefore **not yet met**.
+- Deliberately parked here rather than finished in one pass, to work on other sessions first.
+
+**Dependency warning for whoever resumes work next:** Session 18 (evidence review) and Session 21 (case-study narrative) both require this session's *real, completed* dataset — they cannot be meaningfully finished against fixtures. Sessions 19, 20, and 22 (end-to-end quality, usability testing, deployment/reproducibility) have no such dependency and can proceed on the existing fixture-driven build in the meantime.
+
 ---
 
 ### Session 18 — Evidence review and case-study dataset
