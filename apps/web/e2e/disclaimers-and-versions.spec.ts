@@ -23,11 +23,11 @@ for (const route of PAGES_WITH_DISCLAIMER) {
   });
 }
 
-test("homepage shows the audit run's official status and last-checked date for a portal", async ({
-  page,
-}) => {
+test("portal detail page shows the audit run's last-checked date", async ({ page }) => {
   await page.goto("/portals/portal-agri-assam");
-  await expect(page.getByText("Official status:")).toBeVisible();
+  // "Official status:" is already asserted on this exact route by
+  // task-flows.spec.ts (task flow 4) — this test only covers the
+  // "Last checked" date, which is not duplicated elsewhere.
   await expect(page.getByText("Last checked", { exact: false })).toBeVisible();
 });
 

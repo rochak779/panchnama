@@ -41,6 +41,10 @@ test.describe("best-effort automated keyboard traversal", () => {
         let count = 0;
         for (const el of candidates) {
           if (el.getAttribute("tabindex") === "-1") continue;
+          // offsetParent is null for display:none (and its subtree), so this
+          // excludes elements that receive no real Tab stop. It does NOT
+          // catch visibility:hidden — a known limitation of this heuristic.
+          if (el.offsetParent === null) continue;
           if (el instanceof HTMLInputElement && el.type === "radio") {
             const key = el.name || "";
             if (seenRadioGroups.has(key)) continue;

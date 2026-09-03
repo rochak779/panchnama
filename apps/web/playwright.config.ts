@@ -38,6 +38,11 @@ export default defineConfig({
     // script command.
     command: "pnpm run build && pnpm run start -p 3100",
     url: "http://127.0.0.1:3100",
+    // Tradeoff: locally, if anything is already listening on port 3100,
+    // Playwright reuses it instead of rebuilding — so a stale build can
+    // produce a green run without the developer realizing it. Intentional
+    // (rebuilding on every local run would be slow); if a test result looks
+    // out of date, kill whatever's on port 3100 and rerun.
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
   },

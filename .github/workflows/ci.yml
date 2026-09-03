@@ -58,6 +58,11 @@ jobs:
         run: pnpm build
 
       - name: E2E tests (apps/web)
+        # Playwright's webServer (apps/web/playwright.config.ts) runs its own
+        # `next build` before starting the server, so apps/web gets built a
+        # second time here on top of the "Build" step above. Accepted
+        # tradeoff: keeps e2e tests isolated from the earlier build's
+        # artifacts, at the cost of extra CI time. Not an oversight.
         run: pnpm --filter @panchnama/web run test:e2e
         env:
           CI: true

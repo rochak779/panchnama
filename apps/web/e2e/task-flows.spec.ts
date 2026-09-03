@@ -46,10 +46,10 @@ test.describe("§13.3 task flow 3: distinguish a confirmed failure from a possib
     page,
   }) => {
     await page.goto("/portals/portal-transport-assam");
-    await expect(page.getByText("Unavailable", { exact: true })).toBeVisible();
+    await expect(page.getByText("Unavailable", { exact: true }).first()).toBeVisible();
 
     await page.goto("/portals/portal-agri-assam");
-    await expect(page.getByText("Healthy", { exact: true })).toBeVisible();
+    await expect(page.getByText("Healthy", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Possible functional overlap with Farmers Welfare Portal")).toBeVisible();
   });
 });
@@ -58,7 +58,7 @@ test.describe("§13.3 task flow 4: find where the portal was identified as offic
   test("portal detail page shows official status and its source record", async ({ page }) => {
     await page.goto("/portals/portal-agri-assam");
     await expect(page.getByText("Official status:")).toBeVisible();
-    await expect(page.getByText("verified", { exact: true })).toBeVisible();
+    await expect(page.getByText("verified", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Source: inventory record src-assam-directory-2026")).toBeVisible();
   });
 });
@@ -68,7 +68,7 @@ test.describe("§13.3 task flow 5: state the recommended next action and its lim
     page,
   }) => {
     await page.goto("/portals/portal-transport-assam");
-    await expect(page.getByText("Repair", { exact: true })).toBeVisible();
+    await expect(page.getByText("Repair", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Single-region vantage point.")).toBeVisible();
   });
 });

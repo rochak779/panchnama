@@ -26,20 +26,27 @@ function listFilesRecursive(dir: string): string[] {
     ) {
       // Test files are excluded from the scan: this guard is about
       // rendered application source, and this test file's own source
-      // necessarily contains the literal string "dangerouslySetInnerHTML"
-      // (in the .includes() call above), which would otherwise always
-      // self-match and fail the test.
+      // necessarily contains the literal raw-HTML strings checked
+      // below (in the .some()/.includes() calls), which would
+      // otherwise always self-match and fail the test.
       files.push(fullPath);
     }
   }
   return files;
 }
 
+// The three ways raw HTML can enter a rendered page: React's escape hatch,
+// and the two DOM APIs that bypass React's escaping entirely.
+const RAW_HTML_PATTERNS = ["dangerouslySetInnerHTML", ".innerHTML =", "insertAdjacentHTML("];
+
 describe("no raw HTML rendering", () => {
-  it("no file under apps/web/src uses dangerouslySetInnerHTML", () => {
+  it("no file under apps/web/src uses dangerouslySetInnerHTML, .innerHTML assignment, or insertAdjacentHTML", () => {
     const srcDir = join(process.cwd(), "src");
     const files = listFilesRecursive(srcDir);
-    const offenders = files.filter((f) => readFileSync(f, "utf8").includes("dangerouslySetInnerHTML"));
+    const offenders = files.filter((f) => {
+      const contents = readFileSync(f, "utf8");
+      return RAW_HTML_PATTERNS.some((pattern) => contents.includes(pattern));
+    });
     expect(offenders).toEqual([]);
   });
 });
