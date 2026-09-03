@@ -275,7 +275,19 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
     "Link checking only ever issues HEAD (falling back to GET on a 405/501) or GET requests, and only against links actually discovered in server-rendered or browser-rendered HTML — it does not simulate form submission or JS-triggered navigation.",
   ];
 
+  let portalIndex = 0;
   for (const portal of portals) {
+    portalIndex += 1;
+    // Progress visibility (added Session 17 estate-wide crawl, 2026-09-03):
+    // this run's own output is only written atomically at the very end
+    // (see writeCrawlRunAtomic below), which left a multi-hour real crawl
+    // completely unobservable — no way to tell "still working" from
+    // "stuck" from outside the process. These stderr lines never touch
+    // the atomic output; they're pure operator visibility.
+    const portalStartedAt = Date.now();
+    process.stderr.write(
+      `[crawl] (${portalIndex}/${portals.length}) starting ${portal.id} (${portal.canonicalUrl})...\n`,
+    );
     // Section 14 Session 4 exit criterion: "one portal failure does not
     // stop the run" — isolate every portal's crawl in its own try/catch.
     try {
@@ -366,10 +378,16 @@ export async function runCrawl(params: RunCrawlParams): Promise<RunCrawlResult> 
       lines.push(
         `  [${result.status}] ${portal.id} — ${result.pagesFetched} page(s)${plannedNote}`,
       );
+      process.stderr.write(
+        `[crawl] (${portalIndex}/${portals.length}) [${result.status}] ${portal.id} — ${result.pagesFetched} page(s) in ${Date.now() - portalStartedAt}ms\n`,
+      );
     } catch (error) {
       failed += 1;
       lines.push(
         `  [failed] ${portal.id} — unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.stderr.write(
+        `[crawl] (${portalIndex}/${portals.length}) [failed] ${portal.id} — unexpected error after ${Date.now() - portalStartedAt}ms: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
   }
