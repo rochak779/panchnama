@@ -9,6 +9,7 @@
     "start": "next start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm run build:exports && vitest run",
+    "test:e2e": "playwright test",
     "clean": "rm -rf .next dist *.tsbuildinfo"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@panchnama/audit-cli": "workspace:*",
+    "@playwright/test": "^1.49.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",

@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 /**
  * Session 10 addition. Mirrors `tsconfig.json`'s `"@/*": ["./src/*"]` path
@@ -33,5 +33,12 @@ export default defineConfig({
     // `// @vitest-environment jsdom` docblock instead of flipping this
     // globally.
     setupFiles: ["./vitest.setup.ts"],
+    // Session 19: `e2e/**` holds Playwright specs, which use their own
+    // `test`/`expect` from `@playwright/test` and are run only by
+    // `playwright test` (`pnpm run test:e2e`). Without this exclude,
+    // Vitest's default include glob also picks up `e2e/*.spec.ts` and
+    // fails because those files call Playwright's `test()`, which refuses
+    // to run outside the Playwright runner.
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });

@@ -45,5 +45,13 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Install Playwright Chromium browser (apps/web)
+        run: pnpm --filter @panchnama/web exec playwright install --with-deps chromium
+
       - name: Build
         run: pnpm build
+
+      - name: E2E tests (apps/web)
+        run: pnpm --filter @panchnama/web run test:e2e
+        env:
+          CI: true

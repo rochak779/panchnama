@@ -51,3 +51,7 @@ apps/web/public/exports/
 # mocks) — ephemeral tool output, not project source. PRODUCT.md/DESIGN.md
 # at the repo root are committed as normal.
 .impeccable/
+
+# Playwright (apps/web, Session 19)
+apps/web/playwright-report/
+apps/web/test-results/
