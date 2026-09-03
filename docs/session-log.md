@@ -4353,3 +4353,218 @@ clean.
   `publishedFixtures.ts`'s function signatures must keep
   `build-exports.ts` working, since a broken generator now fails the
   whole app's build, not just an isolated export feature.
+
+---
+
+## Session 19 — End-to-end quality and accessibility
+
+**Date:** 2026-09-03
+**Goal:** Verify the complete scorecard product under realistic use and
+failure conditions — real browser task flows, accessibility, responsive/
+motion behavior, a clean-checkout build, link/export integrity,
+performance, and disclaimer/version correctness (implementation.md
+section 14 Session 19, section 13.3). Run in parallel with Session 17's
+resumed estate-wide crawl, since this session has no dependency on real
+crawl data per implementation.md's own recorded dependency note.
+
+### Files changed
+
+- `apps/web/playwright.config.ts` (new) — Playwright harness: `testDir
+./e2e`, `baseURL http://127.0.0.1:3100`, `webServer` running a real
+`next build && next start` (not `next dev`), so every check exercises the
+same static/server output a production deploy would.
+- `apps/web/e2e/` (new directory, 7 spec files): `smoke.spec.ts`
+  (harness sanity), `task-flows.spec.ts` (automates implementation.md
+  section 13.3's 5 usability-validation tasks against real fixture data),
+  `accessibility.spec.ts` (axe-core scan + best-effort scripted keyboard
+  traversal across all 7 routes), `responsive.spec.ts` (mobile/tablet/
+  desktop viewport overflow, 200% zoom reflow, reduced-motion), `static-
+  generation.spec.ts` (verifies audit pages are actually served
+  prerendered, via the real local `Cache-Control: s-maxage=...` signal),
+  `links-and-exports.spec.ts` (same-origin link crawl + export-download
+  integrity), `disclaimers-and-versions.spec.ts` (independence disclaimer,
+  official status, methodology version render on real pages).
+- `apps/web/src/app/__tests__/no-raw-html.test.ts` (new) — Vitest
+  regression guard: no file under `apps/web/src` may use
+  `dangerouslySetInnerHTML`.
+- `apps/web/scripts/check-bundle-size.mjs` (new) + `check:bundle-size`
+  npm script — parses `next build`'s own de-duplicated "First Load JS"
+  terminal output per route (not a naive manifest-file-size sum, which
+  was tried and found to overcount 3-4x during planning) against a 250 kB
+  budget; real measured sizes are 102-129 kB per route.
+- `apps/web/src/components/portal-detail/PortalDetailContent.test.tsx` —
+  added a long-content stress case (synthetic ~500-character name/summary,
+  not fabricated audit data).
+- Two real accessibility fixes found by the new axe scan and fixed at the
+  source: `apps/web/src/app/portals/[portalId]/portal-detail.module.css`
+  and `apps/web/src/components/layout.module.css` (contrast: moved from
+  `--color-ink-muted`, 4.34:1, to `--color-ink-secondary`, 7.59:1), and
+  `apps/web/src/components/AuditContextBanner.tsx` (a landmark-role fix).
+- `apps/web/vitest.config.ts` — excludes `e2e/**` so Vitest doesn't try
+  to run the Playwright specs itself.
+- `docs/manual-keyboard-review.md` (new) — honest documentation of what
+  the scripted keyboard-traversal check does and does not substitute for
+  (visual focus-ring perceivability, tab-order sensibility, screen-reader
+  behavior all still need Session 20's human testing).
+- `docs/clean-checkout-verification.md` (new) — real output from an
+  actual `rm -rf node_modules`-and-rebuild run, including the CI-ordering
+  bug found and fixed (see Decisions).
+- `docs/release-checklist.md` (new) — the formal sign-off gate this
+  session's exit criteria calls for; lists every automated gate and every
+  manual/documented item.
+- `.github/workflows/ci.yml` — added Playwright browser install +
+  `test:e2e` step for `apps/web`, and (mid-session fix) a "Build workspace
+  packages" step before Lint/Typecheck/Test.
+- `.gitignore` — Playwright's `playwright-report/`/`test-results/`
+  output (redundant with existing unscoped entries, noted but harmless).
+- `eslint.config.mjs` — narrow override for `apps/web/scripts/**/*.mjs`
+  (Node globals for the new bundle-size script only).
+- `apps/web/package.json`, `pnpm-lock.yaml` — `@playwright/test` and
+  `@axe-core/playwright` devDependencies; `test:e2e` and
+  `check:bundle-size` scripts.
+
+### Decisions
+
+- **Built via subagent-driven development**, following a written plan
+  (`docs/superpowers/plans/2026-09-03-session-19-e2e-quality.md`): 7
+  tasks, each independently implemented and task-reviewed (one task —
+  Task 1 — approved with 2 self-disclosed deviations, both independently
+  verified sound; all others approved clean), then one whole-branch review
+  on the most capable available model, which returned "Needs fixes" (2
+  Critical, 3 Important, 2 cheap Minor) — all fixed in one dispatch except
+  one Important finding that the fix implementer correctly declined to
+  force-fix (see next bullet), which the controller adjudicated and routed
+  to one additional scoped fix, then re-reviewed clean.
+- **A real, pre-existing, repo-wide CI bug was found and fixed.** On a
+  genuinely clean checkout (no `node_modules`/`dist` anywhere), `pnpm
+typecheck`/`pnpm test` — run in the order both this session's own plan
+  and `.github/workflows/ci.yml` originally specified (before `pnpm
+build`) — actually fail, because `packages/schema` and other workspace
+  packages resolve their types/runtime entry via `dist/`, which only
+  exists once that package's own `build` script has run. This predates
+  Session 19 (present since whichever session first added a real
+  cross-package import) and was never caught before because this
+  repository's CI has apparently never executed for real (no GitHub
+  remote has been configured in any session to date) — Session 19's own
+  "test the hybrid deployment build from a clean checkout" requirement is
+  what surfaced it. Fixed by inserting a `pnpm -r --workspace-concurrency=1
+  --filter "./packages/*" run build` step into `.github/workflows/ci.yml`
+  between install and lint; `docs/release-checklist.md` and
+  `docs/clean-checkout-verification.md` both reflect the corrected order.
+- **The static-generation check's discriminator was corrected mid-review.**
+  The originally planned assertion (`cache-control` does not contain
+  `"no-store"`) was found to pass vacuously — that string never appears in
+  any local `next start` response, static or dynamic; it appears to be a
+  CDN/edge-layer (e.g. Vercel) addition this local harness cannot
+  exercise. Changed to the real local signal: static routes assert
+  `cache-control` contains `s-maxage`, and a new control test asserts a
+  genuinely dynamic route's `cache-control` header is absent. This was
+  the one final-review finding not force-fixed in the main fix wave — the
+  implementer correctly stopped and reported the underlying signal
+  problem rather than picking an assertion that happened to pass; the
+  controller then ruled on the smallest corrective change and dispatched
+  it as a small follow-up fix, re-reviewed clean.
+- **Bundle-size budget measures Next's own de-duplicated metric, not a
+  naive file-size sum.** An earlier draft of the plan itself summed every
+  JS chunk listed per route in `app-build-manifest.json`, which
+  double/triple-counts chunks shared across routes and produced numbers
+  (~343-440 KB) 3-4x higher than reality; caught and corrected before any
+  task was dispatched, by actually running `next build` and comparing its
+  own reported "First Load JS" (102-129 KB) against the manifest-summing
+  approach's output for the same build. The shipped script parses the
+  real `next build` terminal output instead.
+- **Long-content is tested at the component (Vitest/jsdom) level, not
+  Playwright.** Per this session's own global constraint against
+  inventing fixture/audit data, the long-content stress case uses a
+  synthetic ~500-character string, not a fabricated "real" finding —
+  kept out of the e2e fixture data entirely and added directly to
+  `PortalDetailContent.test.tsx`.
+- **The "manual keyboard review" implementation.md asks for cannot
+  honestly be performed by an automated agent.** Rather than silently
+  claiming compliance, the scripted keyboard-traversal check states
+  exactly what it does (Tab through every focusable element, assert focus
+  never silently drops to `<body>`) and `docs/manual-keyboard-review.md`
+  documents what still needs an actual human (visual focus-ring
+  perceivability, tab-order sensibility, screen-reader behavior),
+  recommending it fold into Session 20's usability testing rather than be
+  treated as closed.
+
+### Tests run and results
+
+```
+$ pnpm lint        # exit 0, clean
+$ pnpm typecheck   # exit 0, 6 workspace projects (verified from a
+                    # genuinely fresh state: rm -rf packages/*/dist, ran
+                    # the new CI prebuild step standalone, then typecheck
+                    # — confirms the CI-ordering fix actually works)
+$ pnpm test        # exit 0, all workspaces (apps/web 403/403 + audit-cli
+                    # 205 + database 40 + schema + audit-core + ui)
+$ pnpm build       # exit 0
+$ pnpm --filter @panchnama/web run test:e2e   # 50/50 passing across all
+                    # 7 spec files (smoke, task-flows, accessibility,
+                    # responsive, static-generation, links-and-exports,
+                    # disclaimers-and-versions)
+$ pnpm --filter @panchnama/web run check:bundle-size
+                    # exit 0, all 11 routes within the 250 kB budget
+                    # (real measured range: 102-129 kB First Load JS)
+```
+
+A real clean-checkout run (`rm -rf apps/web/.next apps/web/dist
+packages/*/dist node_modules apps/web/node_modules
+packages/*/node_modules`, fresh `pnpm install --frozen-lockfile`) was
+performed for real (Task 5), not simulated — see
+`docs/clean-checkout-verification.md` for the full route-by-route static/
+dynamic table.
+
+### Known limitations
+
+- **`disclaimers-and-versions.spec.ts` has one test whose name and route
+  don't match** (asserts homepage content while actually navigating to
+  `/portals/portal-agri-assam`) and duplicates a check `task-flows.spec.ts`
+  already covers on that route. Cosmetic, deferred rather than fixed in
+  the final review's one fix wave.
+- **Several `task-flows.spec.ts` assertions use `getByText(...)` without
+  `.first()`**, so a future cosmetic change that adds a second matching
+  element anywhere on the page would break the test with a strict-mode
+  violation rather than a clear product-regression message. Deferred.
+- **The keyboard-traversal focusable-element counter doesn't filter
+  `display: none`/`hidden`/`inert` subtrees.** Harmless today (no current
+  page has hidden focusables) but would produce a confusing failure if a
+  future collapsed nav or modal were added. Deferred.
+- **`no-raw-html.test.ts` only guards `dangerouslySetInnerHTML`**, not
+  `.innerHTML =` assignment or `insertAdjacentHTML` — the other two ways
+  raw HTML could enter a rendered page. Worth widening once the
+  experience-submission feature renders more user-submitted text.
+- **CI now builds `apps/web` twice per run** (the root `Build` step, then
+  Playwright's own `webServer` command inside `test:e2e`, since
+  `reuseExistingServer` is `false` under `CI=true`). Accepted as the cost
+  of test isolation; flagged for whoever next tunes CI runtime.
+- **`reuseExistingServer: !process.env.CI` means a local developer with
+  anything already listening on port 3100 gets Playwright silently
+  testing that stale server**, not a fresh build. Not yet documented
+  inline in `playwright.config.ts`.
+- **This session's page-level checks (task flows, disclaimers, static
+  generation, etc.) all ran against `data/fixtures/` fixture data**, the
+  same as every prior frontend session — none of it has been re-run
+  against Session 17/18's real published dataset yet, since that dataset
+  doesn't exist yet. Re-running the full `test:e2e` suite once Session 18
+  publishes real data is cheap (the specs read routes/DOM content, not
+  fixture internals directly) but has not been done.
+
+### Next session prerequisites
+
+- The formal release-checklist sign-off (`docs/release-checklist.md`'s
+  own "Sign-off" section) should be re-run and recorded here once Session
+  18 publishes real data, since this session's own run was necessarily
+  against fixtures.
+- `.github/workflows/ci.yml` has still never actually executed on GitHub
+  (no remote configured in any session to date) — the ordering fix in
+  this session is verified by direct local reproduction (a real `rm -rf
+node_modules`/`dist` wipe, not a guess), but the very first real GitHub
+  Actions run of this repository's CI is still an open verification once
+  a remote exists.
+- `docs/usability-test-script.md` (prepared in parallel with this session,
+  not part of it — see the commit on `worktree-session-20-prep`) is ready
+  for Session 20 once real participants are available; it explicitly
+  notes it needs re-checking against real portal data once Session 18
+  publishes.
