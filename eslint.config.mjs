@@ -49,6 +49,18 @@ export default tseslint.config(
     files: ["**/*.js", "**/*.mjs", "**/*.cjs"],
     ...tseslint.configs.disableTypeChecked,
   },
+  {
+    // Node-executed scripts (run via `node` or `pnpm exec`, not bundled by
+    // Next) need Node globals (process, console) that the app's browser/JSX
+    // lint scope below doesn't provide.
+    files: ["apps/web/scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+        console: "readonly",
+      },
+    },
+  },
   ...compat.config({ extends: ["next/core-web-vitals"] }).map((config) => ({
     ...config,
     files: ["apps/web/**/*.{ts,tsx,js,jsx}"],
