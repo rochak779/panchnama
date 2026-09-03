@@ -27,6 +27,7 @@ export default tseslint.config(
       "data/evidence/**",
       "**/*.tsbuildinfo",
       "**/next-env.d.ts",
+      ".claude/**",
     ],
   },
   js.configs.recommended,
