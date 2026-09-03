@@ -289,6 +289,23 @@ describe("PortalDetailContent", () => {
     expect(affected).toHaveAttribute("rel", "noopener noreferrer");
   });
 
+  it("renders long portal name and finding summary text without crashing or truncating", () => {
+    const longName = "Assam Integrated Transport and Vehicle Registration Services Portal ".repeat(7).trim();
+    const longSummary =
+      "This finding describes a recurring availability issue observed across repeated crawl attempts. "
+        .repeat(6)
+        .trim();
+    const finding = makeFinding({ summary: longSummary });
+    renderContent({
+      assessment: makeAssessment({
+        portal: { name: longName },
+        reviewedFindings: [finding],
+      }),
+    });
+    expect(screen.getByRole("heading", { level: 1, name: longName })).toBeInTheDocument();
+    expect(screen.getByText(longSummary)).toBeInTheDocument();
+  });
+
   it("has no detectable accessibility violations", async () => {
     const finding = makeFinding();
     const { container } = renderContent({
