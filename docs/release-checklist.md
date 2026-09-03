@@ -8,6 +8,7 @@ result in `docs/session-log.md` each time.
 
 ## Automated gates (all must exit 0)
 
+- [ ] `pnpm -r --workspace-concurrency=1 --filter "./packages/*" run build` (must run first — `packages/*` publish types/runtime from `dist/`, so lint/typecheck/test cannot resolve cross-package imports on a fresh checkout until this has run)
 - [ ] `pnpm lint`
 - [ ] `pnpm typecheck`
 - [ ] `pnpm test` (includes `apps/web/src/app/__tests__/no-raw-html.test.ts` and the long-content case in `PortalDetailContent.test.tsx`)

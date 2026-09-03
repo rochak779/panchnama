@@ -21,8 +21,12 @@ import { execSync } from "node:child_process";
 // this number.
 const BUDGET_KB = 250;
 
-const output = execSync("pnpm exec next build", { cwd: process.cwd(), encoding: "utf8" });
-console.log(output);
+// Runs the real `build` script (build:exports && next build), not a bare
+// `next build`, so this measures the same app that actually ships —
+// `next build` alone would skip build:exports and could measure a
+// different bundle than production.
+const output = execSync("pnpm run build", { cwd: process.cwd(), encoding: "utf8" });
+console.info(output);
 
 // Matches lines like:
 //   ├ ○ /                                                          782 B         106 kB
@@ -42,7 +46,7 @@ for (const line of output.split("\n")) {
   matchedAnyRoute = true;
   const overBudget = firstLoadKb > BUDGET_KB;
   if (overBudget) anyOverBudget = true;
-  console.log(
+  console.info(
     `${overBudget ? "❌" : "✅"} ${route}: ${firstLoadKb.toFixed(1)} kB First Load JS` +
       (overBudget ? ` (budget: ${BUDGET_KB} kB)` : ""),
   );
@@ -58,4 +62,4 @@ if (anyOverBudget) {
   console.error("\nOne or more routes exceed the bundle-size budget.");
   process.exit(1);
 }
-console.log("\nAll routes within the bundle-size budget.");
+console.info("\nAll routes within the bundle-size budget.");

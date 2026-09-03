@@ -36,6 +36,12 @@ jobs:
         # shared libraries Chromium needs on the runner image.
         run: pnpm --filter @panchnama/audit-cli exec playwright install --with-deps chromium
 
+      - name: Build workspace packages
+        # packages/* publish their types and runtime entry from dist/
+        # (package.json "types"/"exports"), so lint/typecheck/test cannot
+        # resolve cross-package imports on a fresh checkout until these build.
+        run: pnpm -r --workspace-concurrency=1 --filter "./packages/*" run build
+
       - name: Lint
         run: pnpm lint
 

@@ -26,8 +26,9 @@ files in `packages/database` (`mapping.test.ts`,
 package "@panchnama/schema"`. Both pass cleanly once `pnpm build` has
 run first — this is a real, pre-existing repo build-ordering issue
 (unrelated to Session 19's work), not a static-generation regression.
-It should be fixed in `.github/workflows/ci.yml` (reorder to build
-before typecheck/test) as a follow-up; this doc records the order that
+It was fixed in `.github/workflows/ci.yml`, which now runs a
+`pnpm -r --workspace-concurrency=1 --filter "./packages/*" run build`
+step before Lint/Typecheck/Test; this doc records the order that
 actually succeeds today. `pnpm lint` is unaffected by this ordering —
 it does not depend on any workspace package's build output.
 

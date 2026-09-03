@@ -41,6 +41,14 @@ test.describe("200% zoom", () => {
       const box = await heading.boundingBox();
       expect(box).not.toBeNull();
       expect(box!.width).toBeGreaterThan(0);
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      // Same tolerance as the viewport-overflow checks above — proves the
+      // page isn't clipped/overflowing at 200% zoom, not just that the
+      // heading has nonzero width.
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 2);
     });
   }
 });
