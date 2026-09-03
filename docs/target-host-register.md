@@ -65,6 +65,21 @@ every additional host discovered before it is admitted to a crawl.
 - 2026-09-01 (later same day) — Retried `assam.gov.in` from India
   (Mumbai, Kolkata): still connection-timeout from both. Outage/
   unreachability persists; not yet resolved.
+- 2026-09-03 (later same day) — Ran a full reachability sweep across
+  all 177 real entities discovered via `igod.gov.in`'s 11 Assam category
+  pages (not just the earlier 6-host sample): 88 reachable, 89
+  unreachable from this development environment — settling the "is
+  Assam data too thin" question with real numbers rather than a small
+  sample. Enabled `assam-igod-directory` in `config/sources.assam.yaml`
+  (was disabled pending this) and ran a real `inventory:build` against
+  the curated 177-entry list — produced a genuine 177-portal dated run
+  under `data/raw/inventory/` (gitignored, reproducible from the cited
+  igod.gov.in pages, not committed — matches how every other raw run is
+  handled). Fixed two small bugs surfaced by being the first real
+  (non-`data/seed`) `inventory:build` caller: `InventorySource.
+  evidencePath` was hardcoded to assume `data/seed/` regardless of the
+  actual `--seed-dir` used, and warning/error messages had the same
+  hardcoding; both now reflect the real seed directory given.
 - 2026-09-03 — Found `igod.gov.in`, a central-government directory,
   reachable and returning a real structured list of Assam department/
   district sites. `config/sources.assam.yaml` updated: added

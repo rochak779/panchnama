@@ -104,7 +104,7 @@ export function computeInventoryBuild(options: BuildInventoryOptions): BuildInve
   } catch (error) {
     return {
       ok: false,
-      issues: [`failed to load data/seed/source-inputs.json: ${describeError(error)}`],
+      issues: [`failed to load ${join(options.seedDir, "source-inputs.json")}: ${describeError(error)}`],
     };
   }
 
@@ -114,7 +114,7 @@ export function computeInventoryBuild(options: BuildInventoryOptions): BuildInve
   } catch (error) {
     return {
       ok: false,
-      issues: [`failed to load data/seed/aliases.json: ${describeError(error)}`],
+      issues: [`failed to load ${join(options.seedDir, "aliases.json")}: ${describeError(error)}`],
     };
   }
 
@@ -124,13 +124,13 @@ export function computeInventoryBuild(options: BuildInventoryOptions): BuildInve
     const toResult = normalizeUrl(alias.to, normalizationOptions);
     if (!fromResult.ok) {
       issues.push(
-        `data/seed/aliases.json: alias 'from' URL is malformed: "${alias.from}" (${fromResult.reason})`,
+        `${join(options.seedDir, "aliases.json")}: alias 'from' URL is malformed: "${alias.from}" (${fromResult.reason})`,
       );
       continue;
     }
     if (!toResult.ok) {
       issues.push(
-        `data/seed/aliases.json: alias 'to' URL is malformed: "${alias.to}" (${toResult.reason})`,
+        `${join(options.seedDir, "aliases.json")}: alias 'to' URL is malformed: "${alias.to}" (${toResult.reason})`,
       );
       continue;
     }
@@ -157,7 +157,7 @@ export function computeInventoryBuild(options: BuildInventoryOptions): BuildInve
     const sourceEntry = enabledSourcesById.get(sourceId);
     if (!sourceEntry) {
       warnings.push(
-        `data/seed/source-inputs.json references source "${sourceId}", which is not an enabled entry in config/sources.assam.yaml — skipped.`,
+        `${join(options.seedDir, "source-inputs.json")} references source "${sourceId}", which is not an enabled entry in config/sources.assam.yaml — skipped.`,
       );
       continue;
     }
@@ -209,7 +209,7 @@ export function computeInventoryBuild(options: BuildInventoryOptions): BuildInve
   for (const sourceEntry of sourceRegistry.sources) {
     if (sourceEntry.enabled && !usedSourceIds.includes(sourceEntry.id)) {
       warnings.push(
-        `enabled source "${sourceEntry.id}" has no entry in data/seed/source-inputs.json — no candidates were ingested from it this build.`,
+        `enabled source "${sourceEntry.id}" has no entry in ${join(options.seedDir, "source-inputs.json")} — no candidates were ingested from it this build.`,
       );
     }
   }
@@ -234,7 +234,13 @@ export function computeInventoryBuild(options: BuildInventoryOptions): BuildInve
       url: sourceEntry.url,
       sourceType: sourceEntry.sourceType,
       retrievedAt: nowIso,
-      evidencePath: `data/seed/${seedInput.path}`,
+      // Was hardcoded to `data/seed/${seedInput.path}` — silently wrong
+      // for any caller passing a non-default --seed-dir (this function
+      // is documented as "pure with respect to the filesystem paths
+      // given to it"; hardcoding a literal directory name violated
+      // that). Session 17 is the first caller to use a real, non-`data/
+      // seed` evidence directory, which is what surfaced this.
+      evidencePath: join(options.seedDir, seedInput.path),
     };
     if (sourceEntry.notes !== undefined) {
       record.notes = sourceEntry.notes;
