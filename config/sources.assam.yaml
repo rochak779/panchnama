@@ -5,16 +5,22 @@
 #
 # Validate this file with: pnpm run audit sources:validate
 #
-# IMPORTANT — placeholder content:
-# The entries below are well-known, easily-verifiable official Assam
-# government entry points, included as illustrative/placeholder seed
-# content for this session only. NO network verification has been
-# performed on them as part of this session (Session 2 performs no network
-# activity at all). Session 17 ("Assam inventory research and verification"
-# per implementation.md) must independently re-verify every URL, name, and
-# authority attribution here before this registry is used for a live
-# crawl (`inventory:build`). Do not treat this file as a verified source
-# of truth until that session has run.
+# Verification status (Session 17, 2026-09-01/03):
+# The 3 sources below have been checked against real web search/
+# reachability evidence — see docs/target-host-register.md for the full
+# findings (including which hosts are currently unreachable and why).
+# This is desk research plus reachability probing, not a full
+# robots.txt/terms review — the target-host register's `pending` rows
+# still gate any actual crawl. Do not treat this file as sufficient
+# authorization to crawl on its own.
+#
+# Source IDs are kept stable from the original placeholder set
+# (assam-gov-portal, assam-online-services, assam-district-portal-directory)
+# because data/seed/source-inputs.json and packages/audit-cli's Session 3
+# fixture tests wire illustrative seed content to these exact IDs — only
+# `url`/`name`/`notes` were corrected here, not the IDs themselves. See
+# the assam-igod-directory entry below for a genuinely new source found
+# in Session 17 that is NOT yet wired into the fixture pipeline.
 #
 # Config vs. record: this file declares *intent to use a source* (where to
 # look). It intentionally omits `retrievedAt` and `evidencePath`, which
@@ -34,28 +40,72 @@ sources:
     sourceType: official_page
     enabled: true
     notes: >-
-      PLACEHOLDER — needs re-verification in Session 17. The state
-      government's main portal; expected to link out to individual
-      department and scheme websites.
+      Correct, well-known URL for the state's main portal — not a
+      placeholder. However, as of 2026-09-01 (retried same day) this host
+      is unreachable from every tested location, including two different
+      Indian nodes, not just non-Indian ones — looks like a genuine outage
+      rather than geoblocking. See docs/target-host-register.md. Needs a
+      reachability retry before this source can actually be ingested.
 
   - id: assam-online-services
-    name: "Assam Online — State Citizen Services Portal"
+    name: "Assam eServices — State Citizen Services Portal"
     authorityName: "Government of Assam"
-    url: "https://online.assam.gov.in"
-    sourceType: official_directory
+    url: "https://eservices.assam.gov.in"
+    sourceType: official_page
     enabled: true
     notes: >-
-      PLACEHOLDER — needs re-verification in Session 17. Cited as a
-      directory of citizen-facing e-services; used as a candidate source
-      of portal listings for the inventory, not a single portal itself.
+      Corrected in Session 17: the original online.assam.gov.in does not
+      appear to be a real, current domain (no evidence found via web
+      search). eservices.assam.gov.in is the real citizen e-services
+      portal; sourceType corrected from official_directory to
+      official_page since it is itself a portal, not a directory
+      confirmed to list other portals. Sewa Setu (sewasetu.assam.gov.in)
+      and the RTI portal (rtionline.assam.gov.in) are separate,
+      service-specific portals, not yet added as sources. **Reachability,
+      2026-09-01:** confirmed geoblocked by source country — reachable
+      from India (HTTP 502 from the app itself), connection-timeout from
+      the US. A live crawl of this host will need to run from
+      Indian-hosted infrastructure. See docs/target-host-register.md.
+      Source ID kept as assam-online-services (not renamed) because
+      data/seed/source-inputs.json and Session 3's fixture tests wire
+      illustrative seed content to this exact ID.
 
   - id: assam-district-portal-directory
     name: "Assam District Administration Portals"
     authorityName: "Government of Assam"
-    url: "https://assam.gov.in/districts"
+    url: "https://assam.gov.in/districts-page.html"
     sourceType: official_directory
     enabled: true
     notes: >-
-      PLACEHOLDER — needs re-verification in Session 17. Believed to list
-      individual district administration websites; exact path is
-      unverified and may need correction before first ingestion.
+      Corrected in Session 17: the original /districts path did not
+      resolve to a real page. Web search identifies /districts-page.html
+      as the likely correct path, plus a separate directory at
+      gad.assam.gov.in/district-websites (General Administration
+      Department) not yet added as its own source. Neither has been
+      directly fetched yet — assam.gov.in itself is currently
+      unreachable (see assam-gov-portal above) — so this correction is
+      based on search evidence, not a direct page load. Re-verify by
+      direct fetch once assam.gov.in is reachable again.
+
+  - id: assam-igod-directory
+    name: "Integrated Government Online Directory — Assam"
+    authorityName: "National Informatics Centre / Ministry of Electronics and Information Technology (MeitY) — a central government directory, not Assam's own"
+    url: "https://igod.gov.in/sg/AS/categories"
+    sourceType: official_directory
+    enabled: false
+    notes: >-
+      Found in Session 17: reachable independent of assam.gov.in's own
+      uptime (verified 2026-09-03, plain HTTP fetch, not a JS shell) and
+      returns a real, structured list of ~38 named Assam department/
+      district/agency sites (e.g. police.assam.gov.in,
+      barpeta.assam.gov.in) from a central authority rather than Assam's
+      own infrastructure — a promising primary directory source. Left
+      `enabled: false` for now: it has no corresponding entry in
+      data/seed/source-inputs.json, so enabling it would silently drop it
+      from Session 3's fixture-driven inventory:build pipeline (which
+      requires wired seed content for every enabled source) rather than
+      failing loudly. Enable once either (a) Session 17's real crawl
+      integration replaces the fixture-wiring pipeline, or (b) seed
+      content is added for it deliberately. A sample of 6 hosts
+      discovered through it split 3 reachable / 3 unreachable from this
+      development environment — see docs/target-host-register.md.
