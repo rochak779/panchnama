@@ -92,20 +92,22 @@ sources:
     authorityName: "National Informatics Centre / Ministry of Electronics and Information Technology (MeitY) — a central government directory, not Assam's own"
     url: "https://igod.gov.in/sg/AS/categories"
     sourceType: official_directory
-    enabled: false
+    enabled: true
     notes: >-
-      Found in Session 17: reachable independent of assam.gov.in's own
-      uptime (verified 2026-09-03, plain HTTP fetch, not a JS shell) and
-      returns a real, structured list of ~38 named Assam department/
-      district/agency sites (e.g. police.assam.gov.in,
-      barpeta.assam.gov.in) from a central authority rather than Assam's
-      own infrastructure — a promising primary directory source. Left
-      `enabled: false` for now: it has no corresponding entry in
-      data/seed/source-inputs.json, so enabling it would silently drop it
-      from Session 3's fixture-driven inventory:build pipeline (which
-      requires wired seed content for every enabled source) rather than
-      failing loudly. Enable once either (a) Session 17's real crawl
-      integration replaces the fixture-wiring pipeline, or (b) seed
-      content is added for it deliberately. A sample of 6 hosts
-      discovered through it split 3 reachable / 3 unreachable from this
-      development environment — see docs/target-host-register.md.
+      Found and enabled in Session 17: reachable independent of
+      assam.gov.in's own uptime (verified 2026-09-03, plain HTTP fetch,
+      not a JS shell). Its 11 category pages (E003, E004, E005, E009,
+      E011, E013, E042, E051, E059, OTHR, SPMA) together list 177 unique
+      real Assam department/directorate/district/board/PSU/scheme sites
+      (after excluding ~4 unrelated "related schemes" entries injected
+      identically on every category page, e.g. a Bihar site) — a
+      reachability sweep of all 177 found 88 reachable, 89 unreachable
+      from this development environment, roughly the same split as the
+      earlier 6-host sample. See docs/target-host-register.md for the
+      full findings. Curated evidence lives under
+      data/raw/inventory-evidence/ (gitignored, regenerable from the
+      cited igod.gov.in pages, NOT data/seed/ — that directory remains
+      Session 3's illustrative-fixture-only content, per its own
+      documented scope) and is wired via its own source-inputs.json, kept
+      separate from data/seed/source-inputs.json's Session 3 fixture
+      wiring so the existing fixture tests are unaffected.

@@ -27,7 +27,7 @@ export function renderInventoryReport(params: {
   lines.push(`Built at: ${nowIso}`);
   lines.push("");
   lines.push(
-    "This is a pre-review, fixture-driven build (implementation.md Session 3). It is NOT a published/validated dataset — see Session 8 for the review and publication pipeline. All source content in this build is illustrative seed fixture data (see `data/seed/*`), not real crawled content.",
+    "This is a pre-review inventory build. It is NOT a published/validated dataset — see Session 8/18 for the review and publication pipeline. Whether the source content below is illustrative fixture data or real research findings depends on which seed inputs were used for this run — check each inventory source's `evidencePath` below (`data/seed/*` is Session 3's illustrative-fixture-only content; other paths, e.g. `data/raw/inventory-evidence/*`, are real, dated Session 17+ research).",
   );
   lines.push("");
   lines.push(`## Summary`);
@@ -42,11 +42,11 @@ export function renderInventoryReport(params: {
 
   lines.push("## Inventory sources");
   lines.push("");
-  lines.push("| Source ID | Name | Type | URL | Retrieved At |");
-  lines.push("|---|---|---|---|---|");
+  lines.push("| Source ID | Name | Type | URL | Retrieved At | Evidence path |");
+  lines.push("|---|---|---|---|---|---|");
   for (const source of inventorySources) {
     lines.push(
-      `| ${source.id} | ${source.name} | ${source.sourceType} | ${source.url} | ${source.retrievedAt} |`,
+      `| ${source.id} | ${source.name} | ${source.sourceType} | ${source.url} | ${source.retrievedAt} | ${source.evidencePath} |`,
     );
   }
   lines.push("");
