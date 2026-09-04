@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-itiassam.admissions.nic.in-broken_link.repeated-failure.v1-1239",
+  "decision": "reject",
+  "reviewedAt": "2026-09-04T16:15:31.031Z",
+  "reviewer": "claude-sonnet-5 (delegated review; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04)",
+  "rationale": "Destination is a Twitter/X share-intent URL from a social-share widget, not page content a citizen navigates to. x.com blocks non-browser/automated requests to /share, which is why this crawler's fetch fails — a human clicking the button in a real browser is not blocked. Not real evidence of a broken destination for the audited portal's audience. Rejected, not published."
+}

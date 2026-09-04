@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-eprastuti.assam.gov.in-directory_mismatch.listed-vs-observed.v1-3883",
+  "decision": "reject",
+  "reviewedAt": "2026-09-04T16:15:30.971Z",
+  "reviewer": "claude-sonnet-5 (delegated review; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04)",
+  "rationale": "Rule-bug false positive, confirmed by reading packages/audit-core/src/rules/directory-mismatch.ts: the 'directory host' compared is the IGOD category-listing page's own URL (e.g. igod.gov.in/sg/AS/categories), not a per-portal deep link IGOD actually points to. This makes the host-mismatch check fire for essentially every portal sourced from IGOD by construction, not because of a real listing discrepancy. Rejected per Rochak Agarwal's decision (2026-09-04) rather than published as a misleading 'directory disagrees with reality' claim. Flagged for a rule/inventory fix in a future session; not a per-portal judgment call."
+}

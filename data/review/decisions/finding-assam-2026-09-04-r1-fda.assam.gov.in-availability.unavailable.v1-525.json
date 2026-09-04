@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-fda.assam.gov.in-availability.unavailable.v1-525",
+  "decision": "publish",
+  "reviewedAt": "2026-09-04T15:07:58.872Z",
+  "reviewer": "claude-sonnet-5 (delegated review — availability cluster only; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04, pending his spot-check)",
+  "rationale": "Evidence verified: entry point failed 3 real timestamped fetch attempts (see cited evidence artifact) with a genuine network-level error (CONNECT_TIMEOUT / DNS_FAILURE), not an audit-system bug — both known audit-system bug classes (SSRF-DNS mislabel, undici timeout misclassification) were fixed and regression-tested before this run (implementation.md Session 17). Summary text is factual and non-attributive (\"Unavailable during 3 checks on [date]\") — it does not claim the portal is abandoned, dead, or permanently down, matching §8.4 editorial policy. Per ADR 0002 (docs/architecture-decisions/0002-estate-wide-crawl-authorization.md), this environment cannot distinguish genuine outage from geoblocking without Indian-hosted crawl infrastructure (out of scope this session); 'unavailable' is the honest, literal label for what was actually observed, and does not assert citizens in Assam cannot reach it. Published as-is; the audit's known-limitations note (session-log.md) should be surfaced in the product's methodology copy."
+}

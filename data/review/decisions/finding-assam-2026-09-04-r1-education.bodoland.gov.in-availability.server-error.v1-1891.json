@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-education.bodoland.gov.in-availability.server-error.v1-1891",
+  "decision": "publish",
+  "reviewedAt": "2026-09-04T15:07:58.877Z",
+  "reviewer": "claude-sonnet-5 (delegated review — availability cluster only; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04, pending his spot-check)",
+  "rationale": "Evidence verified: real HTTP 503 response captured with timestamp (education.bodoland.gov.in). Distinct from a connection-level failure — the server responded, just with an error status. Factual summary, no attribution of cause."
+}
