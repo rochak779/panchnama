@@ -49,10 +49,13 @@ export async function runPublish(params: RunPublishParams): Promise<RunPublishRe
     };
   }
 
-  const { assessments, summary } = transformToPublication(validated.result, {
-    crawlOutDir: params.crawlOutDir,
-    publishedAt: now(),
-  });
+  const { assessments, summary, evidenceArtifacts, overlapComparisons } = transformToPublication(
+    validated.result,
+    {
+      crawlOutDir: params.crawlOutDir,
+      publishedAt: now(),
+    },
+  );
 
   for (const assessment of assessments) {
     const check = publishedPortalAssessmentSchema.safeParse(assessment);
@@ -72,6 +75,9 @@ export async function runPublish(params: RunPublishParams): Promise<RunPublishRe
       runId: params.runId,
       assessments,
       summary,
+      evidenceArtifacts,
+      overlapComparisons,
+      auditRun: validated.result.bundle.auditRun,
       ...(params.overwrite !== undefined ? { overwrite: params.overwrite } : {}),
     });
     return {

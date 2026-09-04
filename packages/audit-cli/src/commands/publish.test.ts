@@ -255,6 +255,50 @@ describe("review -> publish -> export -> report pipeline", () => {
           }
         }
       }
+
+      // evidence-artifacts.json: exactly (and only) the artifacts cited by
+      // a published finding, each effectively privacy-reviewed.
+      const evidencePath = join(
+        layout.reviewPaths.publishedDir,
+        layout.runId,
+        "evidence-artifacts.json",
+      );
+      expect(existsSync(evidencePath)).toBe(true);
+      const publishedEvidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+      const citedRefs = new Set(
+        assessments.flatMap((a: { reviewedFindings: Finding[] }) =>
+          a.reviewedFindings.flatMap((f) => f.evidenceRefs),
+        ),
+      );
+      expect(new Set(publishedEvidence.map((e: { id: string }) => e.id))).toEqual(citedRefs);
+      for (const e of publishedEvidence) {
+        expect(e.privacyReviewed).toBe(true);
+      }
+      // No evidence belonging only to a rejected/needs-more-evidence
+      // finding leaks through.
+      for (const f of [...rejected, ...needsMore]) {
+        for (const ref of f.evidenceRefs) {
+          if (!citedRefs.has(ref)) {
+            expect(publishedEvidence.some((e: { id: string }) => e.id === ref)).toBe(false);
+          }
+        }
+      }
+
+      // audit-run.json: the real crawl-run manifest, copied verbatim.
+      const auditRunPath = join(layout.reviewPaths.publishedDir, layout.runId, "audit-run.json");
+      expect(existsSync(auditRunPath)).toBe(true);
+      const publishedAuditRun = JSON.parse(readFileSync(auditRunPath, "utf8"));
+      expect(publishedAuditRun.id).toBe(layout.runId);
+      expect(publishedAuditRun.portalCount).toBeGreaterThan(0);
+
+      // overlap-comparisons.json: none authored in this fixture, so empty.
+      const overlapPath = join(
+        layout.reviewPaths.publishedDir,
+        layout.runId,
+        "overlap-comparisons.json",
+      );
+      expect(existsSync(overlapPath)).toBe(true);
+      expect(JSON.parse(readFileSync(overlapPath, "utf8"))).toEqual([]);
     } finally {
       await good.close();
       await dead.close();

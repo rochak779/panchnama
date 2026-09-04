@@ -1,0 +1,41 @@
+{
+  "id": "assam-2026-09-04-r1",
+  "geography": "assam",
+  "startedAt": "2026-09-04T05:08:46.665Z",
+  "completedAt": "2026-09-04T14:42:35.711Z",
+  "status": "partial",
+  "methodologyVersion": "0.1.0",
+  "schemaVersion": "1.0.0",
+  "codeRevision": "9a20c7ebb87e145682bb72a617fc102f28b120db",
+  "nodeVersion": "v25.9.0",
+  "packageVersionsDigest": "8d621dcd0510420760dc1570d27ca2a7436cacfeaeae2948be625912b5eb36f1",
+  "sourceRegistryDigest": "9063c867f2d40f4c063ce73a6c4b87258a0458df08f391df504f727fe8cd174c",
+  "crawlPolicyDigest": "a6b583170998f48b69985e11518486a51686290233cfbb023b595e882d605036",
+  "checkConfigDigest": "78fe735e21483812c645aee391a3dcf6f1dd0b1127b9c45db7c5fd88ea2ecb9c",
+  "enabledChecks": [
+    "availability.unavailable.v1",
+    "availability.server-error.v1",
+    "availability.not-found.v1",
+    "redirect.cross-domain.v1",
+    "availability.automation-blocked.v1",
+    "availability.access-restricted.v1",
+    "broken_link.repeated-failure.v1",
+    "https.certificate-failure.v1",
+    "https.no-tls-upgrade.v1",
+    "freshness.no-signal.v1",
+    "directory_mismatch.unavailable-destination.v1",
+    "directory_mismatch.listed-vs-observed.v1",
+    "directory_mismatch.official-portal-not-listed.v1",
+    "crawl_coverage.summary.v1"
+  ],
+  "portalCount": 177,
+  "portalsSucceeded": 76,
+  "portalsFailed": 92,
+  "portalsPartial": 9,
+  "limitations": [
+    "Browser-mode fallback (Session 6) only fetches the single triggering page itself via Playwright — it does not expand the frontier queue or follow deeper links discovered through client-side rendering, so coverage of a client-rendered portal beyond its entry shell page remains bounded by ordinary HTTP-mode crawling.",
+    "Browser-mode fallback only activates for portals explicitly allowlisted (or override-enabled) in config, and only when the global `jsRendering.browserFallbackEnabled` switch is on; a client-rendered portal not configured this way will show reduced coverage, both for extraction and for link discovery.",
+    "Empty-shell, auth-wall, and CAPTCHA/bot-block detection (Session 6) are best-effort heuristics over rendered HTML, not guarantees — see docs/session-log.md for documented false-positive/false-negative limits.",
+    "Link checking only ever issues HEAD (falling back to GET on a 405/501) or GET requests, and only against links actually discovered in server-rendered or browser-rendered HTML — it does not simulate form submission or JS-triggered navigation."
+  ]
+}
