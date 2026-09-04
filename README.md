@@ -115,10 +115,13 @@ To deploy on Vercel:
 
 1. Import this repository into a new Vercel project.
 2. Set **Root Directory** to `apps/web`.
-3. Framework preset: Next.js (auto-detected). Build command
-   (`pnpm run build`, which runs `build:exports` then `next build`) and
-   install command are picked up automatically once the root directory is
-   set — no overrides needed.
+3. Framework preset: Next.js (auto-detected). `apps/web/vercel.json`
+   overrides the build command to `pnpm --filter @panchnama/web... run
+   build`, which builds `@panchnama/web`'s workspace dependencies
+   (`@panchnama/audit-cli`, `@panchnama/database`, etc. — plain `pnpm run
+   build` in `apps/web` alone doesn't compile those, since Vercel's
+   default build doesn't run the root-level recursive build) before
+   `build:exports` and `next build`. No manual overrides needed.
 4. Deploy. No environment variables are required for the scorecard itself.
 
 Optional: the citizen-experience submission feature (`/api/experiences`)
