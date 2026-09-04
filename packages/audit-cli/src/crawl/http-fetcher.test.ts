@@ -297,4 +297,46 @@ describe("fetchWithRetry", () => {
       await server.close();
     }
   });
+
+  it("retries a transient SSRF-check DNS lookup failure as DNS_FAILURE (regression: previously non-retryable SSRF_BLOCKED)", async () => {
+    // Regression test for the real Session 17 bug: a DNS lookup that
+    // fails to resolve at all must be retried like any other network
+    // failure, not treated as a permanent SSRF_BLOCKED determination
+    // with zero retries.
+    const result = await fetchWithRetry(
+      "https://this-hostname-is-not-actually-fetched.example",
+      opts({
+        ssrf: {
+          lookupFn: (async () => {
+            throw new Error("ENOTFOUND");
+          }) as never,
+        },
+      }),
+      {
+        maxAttempts: 3,
+        baseDelayMs: 1,
+        sleepFn: async () => {},
+      },
+    );
+    expect(result.errorCode).toBe("DNS_FAILURE");
+    expect(result.attempts).toBe(3);
+  });
+
+  it("does not retry a genuine SSRF block (resolves to a blocked address)", async () => {
+    const result = await fetchWithRetry(
+      "https://this-hostname-is-not-actually-fetched.example",
+      opts({
+        ssrf: {
+          lookupFn: (async () => [{ address: "10.0.0.5", family: 4 }]) as never,
+        },
+      }),
+      {
+        maxAttempts: 3,
+        baseDelayMs: 1,
+        sleepFn: async () => {},
+      },
+    );
+    expect(result.errorCode).toBe("SSRF_BLOCKED");
+    expect(result.attempts).toBe(1);
+  });
 });

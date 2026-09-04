@@ -92,7 +92,28 @@ function findSystemErrorCode(error: unknown, depth = 0): string | undefined {
 }
 
 const DNS_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "EAI_NODATA", "EAI_NONAME"]);
-const CONNECT_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH"]);
+// `UND_ERR_CONNECT_TIMEOUT`/`UND_ERR_HEADERS_TIMEOUT` (added Session 17
+// estate-wide crawl, 2026-09-03, after a real run showed the bug this
+// fixes): undici has its own internal connect/headers timeouts (default
+// ~10s) that fire independently of — and can fire *before* — this
+// fetcher's own `AbortController`-based `requestTimeoutMs` abort. When
+// undici's internal timeout wins that race, `controller.signal.aborted`
+// is false, so the fetcher's own CONNECT_TIMEOUT branch never triggers
+// and the error reaches this function instead — verified live against a
+// real unreachable host (`cause.code: "UND_ERR_CONNECT_TIMEOUT"`).
+// Previously unrecognized, these fell through to INTERNAL_AUDIT_ERROR:
+// a genuine "target didn't respond" case mislabeled as an audit-system
+// problem, and — since INTERNAL_AUDIT_ERROR isn't in http-fetcher.ts's
+// RETRYABLE_CODES — denied the same retry-with-backoff every other
+// connect failure gets.
+const CONNECT_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+]);
 const TLS_EXPIRED_CODES = new Set(["CERT_HAS_EXPIRED", "ERR_TLS_CERT_HAS_EXPIRED"]);
 const TLS_MISMATCH_CODES = new Set([
   "ERR_TLS_CERT_ALTNAME_INVALID",

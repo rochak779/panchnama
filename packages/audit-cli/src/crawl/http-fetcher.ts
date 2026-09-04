@@ -175,6 +175,12 @@ export async function fetchOnce(
 
     const ssrfResult = await checkSsrf(parsed.hostname, options.ssrf);
     if (ssrfResult.blocked) {
+      // A DNS lookup that failed to resolve at all (ssrf.ts's
+      // `retryable: true`) is a network failure, not a security
+      // determination — route it to the ordinary retryable DNS_FAILURE
+      // code so it gets the same 3-attempts-with-backoff fairness as any
+      // other network hiccup. Still fails closed either way: this branch
+      // never proceeds to fetch.
       return {
         ok: false,
         requestedUrl,
@@ -182,7 +188,7 @@ export async function fetchOnce(
         redirectChain,
         bodyTruncated: false,
         durationMs: Date.now() - start,
-        errorCode: "SSRF_BLOCKED",
+        errorCode: ssrfResult.retryable === true ? "DNS_FAILURE" : "SSRF_BLOCKED",
         errorMessage: ssrfResult.reason,
       };
     }
