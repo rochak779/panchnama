@@ -141,11 +141,13 @@ marketing site would use. Body copy is capped at a comfortable measure
 
 ## Elevation & Depth
 
-None. This is a flat, bordered world by design — an evidence register
-reads as paper/index cards, not floating panels. No `box-shadow` appears
-anywhere in `apps/web/src/components/` or `src/styles/`. If a future
-session needs to lift an overlay (a dropdown, a modal) above content, add a
-real offset+blur shadow token then; don't retrofit shadows onto the flat
+None, EXCEPT the portal scorecard page (see "Portal scorecard" below) —
+everywhere else this is a flat, bordered world by design: an evidence
+register reads as paper/index cards, not floating panels. No `box-shadow`
+appears anywhere in `apps/web/src/components/` other than
+`portal-detail/portal-scorecard.module.css`. If a future session needs to
+lift an overlay (a dropdown, a modal) above content elsewhere, add a real
+offset+blur shadow token then; don't retrofit shadows onto the flat
 surfaces this session built.
 
 ## Shapes
@@ -192,6 +194,45 @@ for the focus ring and the (currently unused) nav active-state underline.
 All interactive elements share one focus treatment: a 2px accent-colored
 outline, 2px offset, `:focus-visible` only (`globals.css`) — never
 suppressed.
+
+## Portal scorecard (`/portals/[portalId]` — a deliberate exception)
+
+The single-portal detail page (`components/portal-detail/PortalScorecard.tsx`,
+`portal-scorecard.module.css`) intentionally departs from every rule above
+about elevation, radii, and pill shapes. This is not drift — it's a
+separate, later decision, made explicitly with Rochak Agarwal
+(rochak.ag779@gmail.com) after reacting to a reference design ("Rythea," a
+consumer health-dashboard UI) and asking to build it for real. Everywhere
+else in the product — Overview, Inventory, Methodology, the site
+shell/header/banner/footer — the flat evidence-register system above still
+governs unchanged.
+
+- **Elevation**: real `box-shadow` on cards (soft, offset, no hard edges) —
+  the one place in the codebase this appears.
+- **Shapes**: large radii (16–20px) and fully-rounded pills, not the
+  4/6px boxy scale.
+- **Color**: a local, page-scoped severity-driven accent (CSS custom
+  properties on `.root`: `--ps-accent`/`--ps-good`/`--ps-caution`/
+  `--ps-info`/`--ps-unknown`, distinct from the site-wide `accent`/status
+  tokens), reflecting the audited portal's own real severity — not a
+  decorative palette choice.
+- **What did NOT change**: the core accessibility principle. Status is
+  still always icon + text label + color together, never color alone
+  (`StatusInline` in `PortalScorecard.tsx` mirrors `StatusBadge`/
+  `SeverityMarker`'s pattern, just restyled). Tabs use a real ARIA
+  tabs pattern (`ScorecardTabs.tsx`: `role="tablist"/"tab"/"tabpanel"`,
+  arrow-key navigation). Every number on the page is still derived from
+  the real published `PublishedPortalAssessment`/`EvidenceArtifact`
+  records — nothing here is decorative or fixture content, including the
+  live portal-switcher search (`PortalSwitcherSearch.tsx`).
+- **Reused, not rebuilt**: the actual finding/evidence/overlap rendering
+  inside each tab panel reuses the site's existing finding-card markup
+  and CSS (`app/portals/[portalId]/portal-detail.module.css`,
+  imported as `legacyStyles`) rather than re-implementing it in the new
+  visual language — deliberate scope control, not an oversight.
+- **Scope**: this page only. If a future session wants this direction for
+  Overview/Inventory too, that's a new decision to make explicitly, not
+  an assumption this section grants.
 
 ## Do's and Don'ts
 

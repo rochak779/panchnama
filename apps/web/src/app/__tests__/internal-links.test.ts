@@ -52,10 +52,13 @@ describe("internal link integrity (SiteHeader, SiteFooter, AuditContextBanner, I
     linksByFile.set(filename, extractInternalHrefs(contents));
   }
 
-  it("finds at least one internal link in the header, footer, and banner sources", () => {
+  it("finds at least one internal link in the header and footer sources", () => {
     expect(linksByFile.get("SiteHeader.tsx")!.length).toBeGreaterThan(0);
     expect(linksByFile.get("SiteFooter.tsx")!.length).toBeGreaterThan(0);
-    expect(linksByFile.get("AuditContextBanner.tsx")!.length).toBeGreaterThan(0);
+  });
+
+  it("carries no link of its own in the banner — a later, deliberate trim (redundant with the header nav / overview's own links)", () => {
+    expect(linksByFile.get("AuditContextBanner.tsx")).toEqual([]);
   });
 
   it("resolves every internal link target to a real page.tsx under src/app", () => {

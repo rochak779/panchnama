@@ -11,9 +11,9 @@ describe("SiteHeader", () => {
     expect(wordmark).toHaveAttribute("href", "/");
   });
 
-  it("states, near the wordmark, that this is not a government website", () => {
+  it("carries no independence-tag text of its own — that lives on /about and in the footer", () => {
     render(<SiteHeader />);
-    expect(screen.getByText(/not a government website/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not a government website/i)).not.toBeInTheDocument();
   });
 
   it("exposes primary navigation as a labeled landmark with real links", () => {
@@ -26,6 +26,7 @@ describe("SiteHeader", () => {
       "href",
       "/methodology",
     );
+    expect(screen.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
   });
 
   it("uses a real <header> landmark", () => {

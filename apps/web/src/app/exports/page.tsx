@@ -106,7 +106,7 @@ export default function ExportsPage({ exportsDir = DEFAULT_EXPORTS_DIR }: Export
         <div className={styles.hero}>
           <h1>Download the audit data</h1>
           <p>
-            The full public dataset behind this case study, as plain files. Every file below is
+            The full public dataset behind this audit, as plain files. Every file below is
             generated from the same published audit run shown on the rest of this site — nothing
             here is a separate or newer dataset.
           </p>

@@ -2,14 +2,25 @@
 import { render, screen, within } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { describe, expect, it } from "vitest";
-import { PRODUCT_DISCLAIMER, PRODUCT_NAME } from "@/lib/constants";
+import { PRODUCT_NAME } from "@/lib/constants";
+import { getPublishedPortalAssessments } from "@/lib/publishedRun";
+import {
+  countByTechnicalHealth,
+  countBySeverity,
+  countBySuggestedAction,
+  directoryMismatchFindings,
+  topPriorityFindings,
+} from "@/lib/overviewSummary";
 import HomePage from "./page";
 
-describe("HomePage / Assam overview (builds from real data/fixtures/*.json)", () => {
-  it("renders the product name and independence disclaimer", () => {
+const HEALTH_LABELS = { healthy: "Healthy", degraded: "Degraded", unavailable: "Unavailable", not_assessable: "Not assessable" } as const;
+const SEVERITY_LABELS = { critical: "Critical", significant: "Significant", advisory: "Advisory" } as const;
+
+describe("HomePage / Assam overview (builds from the real published audit run)", () => {
+  it("renders just the product name, no explanatory hero copy — that lives on /about", () => {
     render(<HomePage />);
     expect(screen.getByRole("heading", { level: 1, name: PRODUCT_NAME })).toBeInTheDocument();
-    expect(screen.getByText(PRODUCT_DISCLAIMER)).toBeInTheDocument();
+    expect(screen.queryByText(/case study|case-study/i)).not.toBeInTheDocument();
   });
 
   it("has a real <main> landmark matching the header's skip link target", () => {
@@ -18,40 +29,40 @@ describe("HomePage / Assam overview (builds from real data/fixtures/*.json)", ()
     expect(main).toHaveAttribute("id", "main-content");
   });
 
-  it("shows technical-health counts that match the fixture data (6 portals: 3 healthy, 1 degraded, 1 unavailable, 1 not assessable)", () => {
+  it("shows technical-health counts that match the real published assessments", () => {
     render(<HomePage />);
+    const assessments = getPublishedPortalAssessments();
+    const counts = countByTechnicalHealth(assessments);
     const section = screen.getByRole("heading", { name: "Technical health" }).closest("section")!;
     const tiles = within(section).getAllByRole("listitem");
     expect(tiles).toHaveLength(4);
-    expect(tiles[0]).toHaveTextContent("Healthy");
-    expect(tiles[0]).toHaveTextContent("3");
-    expect(tiles[1]).toHaveTextContent("Degraded");
-    expect(tiles[1]).toHaveTextContent("1");
-    expect(tiles[2]).toHaveTextContent("Unavailable");
-    expect(tiles[2]).toHaveTextContent("1");
-    expect(tiles[3]).toHaveTextContent("Not assessable");
-    expect(tiles[3]).toHaveTextContent("1");
+    for (const [status, label] of Object.entries(HEALTH_LABELS)) {
+      const tile = tiles.find((t) => t.textContent?.includes(label))!;
+      expect(tile).toHaveTextContent(String(counts[status as keyof typeof counts]));
+    }
   });
 
-  it("shows severity counts derived from the fixture assessments", () => {
+  it("shows severity counts derived from the real published assessments", () => {
     render(<HomePage />);
+    const assessments = getPublishedPortalAssessments();
+    const counts = countBySeverity(assessments);
     const section = screen
       .getByRole("heading", { name: "Findings by severity" })
       .closest("section")!;
     const tiles = within(section).getAllByRole("listitem");
-    expect(tiles[0]).toHaveTextContent("Critical");
-    expect(tiles[0]).toHaveTextContent("1");
-    expect(tiles[1]).toHaveTextContent("Significant");
-    expect(tiles[1]).toHaveTextContent("1");
-    expect(tiles[2]).toHaveTextContent("Advisory");
-    expect(tiles[2]).toHaveTextContent("3");
+    for (const [severity, label] of Object.entries(SEVERITY_LABELS)) {
+      const tile = tiles.find((t) => t.textContent?.includes(label))!;
+      expect(tile).toHaveTextContent(String(counts[severity as keyof typeof counts]));
+    }
   });
 
-  it("shows suggested-action counts without ever collapsing them into one score", () => {
+  it("shows one suggested-action tile per possible action, without ever collapsing them into one score", () => {
     render(<HomePage />);
+    const assessments = getPublishedPortalAssessments();
+    const counts = countBySuggestedAction(assessments);
     const section = screen.getByRole("heading", { name: "Suggested actions" }).closest("section")!;
     const tiles = within(section).getAllByRole("listitem");
-    expect(tiles).toHaveLength(5);
+    expect(tiles).toHaveLength(Object.keys(counts).length);
   });
 
   it("never renders a composite/single score", () => {
@@ -60,54 +71,39 @@ describe("HomePage / Assam overview (builds from real data/fixtures/*.json)", ()
     expect(screen.queryByRole("meter")).not.toBeInTheDocument();
   });
 
-  it("lists priority findings ordered critical first", () => {
+  it("lists priority findings ordered critical first, matching the real derivation", () => {
     render(<HomePage />);
+    const assessments = getPublishedPortalAssessments();
+    const priority = topPriorityFindings(assessments);
     const section = screen.getByRole("heading", { name: "Priority findings" }).closest("section")!;
     const items = within(section).getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("Portal entry point unreachable");
-    expect(items[0]).toHaveTextContent("Assam Transport Department Portal");
+    expect(items).toHaveLength(priority.length);
+    if (priority.length > 0) {
+      expect(items[0]).toHaveTextContent(priority[0]!.finding.title);
+      expect(items[0]).toHaveTextContent(priority[0]!.portalName);
+    }
   });
 
-  it("lists the directory mismatch finding separately from priority findings", () => {
+  it("lists real directory mismatch findings separately from priority findings", () => {
     render(<HomePage />);
+    const assessments = getPublishedPortalAssessments();
+    const mismatches = directoryMismatchFindings(assessments);
     const section = screen
       .getByRole("heading", { name: "Directory mismatch summary" })
       .closest("section")!;
+    if (mismatches.length > 0) {
+      expect(within(section).getByText(mismatches[0]!.portalName)).toBeInTheDocument();
+    } else {
+      expect(section.textContent).toMatch(/no directory mismatch/i);
+    }
+  });
+
+  it("renders no Limitations or Where-to-investigate-next section — that content lives on /methodology now", () => {
+    render(<HomePage />);
+    expect(screen.queryByRole("heading", { name: "Limitations" })).not.toBeInTheDocument();
     expect(
-      within(section).getByText(/Directory entry links to a different destination/),
-    ).toBeInTheDocument();
-    expect(
-      within(section).getByText("Assam Panchayat and Rural Development Portal"),
-    ).toBeInTheDocument();
-  });
-
-  it("names the not-assessable portal and its reason in the limitations section", () => {
-    render(<HomePage />);
-    const section = screen.getByRole("heading", { name: "Limitations" }).closest("section")!;
-    expect(section.textContent).toMatch(/Assam Education Department Portal/);
-    expect(section.textContent).toMatch(/CAPTCHA challenge/);
-  });
-
-  it("notes the run is partial, since the fixture audit run mixes outcomes", () => {
-    render(<HomePage />);
-    expect(document.body.textContent).toMatch(/marked\s*[“"]partial[”"]/);
-  });
-
-  it("links to inventory, methodology, and exports", () => {
-    render(<HomePage />);
-    const nav = screen.getByRole("navigation", { name: "Investigate further" });
-    expect(within(nav).getByRole("link", { name: /website inventory/i })).toHaveAttribute(
-      "href",
-      "/inventory",
-    );
-    expect(within(nav).getByRole("link", { name: /methodology/i })).toHaveAttribute(
-      "href",
-      "/methodology",
-    );
-    expect(within(nav).getByRole("link", { name: /audit dataset/i })).toHaveAttribute(
-      "href",
-      "/exports",
-    );
+      screen.queryByRole("heading", { name: "Where to investigate next" }),
+    ).not.toBeInTheDocument();
   });
 
   it("has no detectable accessibility violations", async () => {

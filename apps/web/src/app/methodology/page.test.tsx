@@ -16,6 +16,8 @@ import {
   OBSERVED_ESTATE_RULES,
   SEVERITY_CONFIDENCE_RULES,
 } from "@/lib/methodologyContent";
+import { notAssessablePortals } from "@/lib/overviewSummary";
+import { getPublishedAuditRun, getPublishedPortalAssessments } from "@/lib/publishedRun";
 import MethodologyPage from "./page";
 
 describe("MethodologyPage (renders real methodologyContent.ts data)", () => {
@@ -89,5 +91,34 @@ describe("MethodologyPage (renders real methodologyContent.ts data)", () => {
   it("has no detectable accessibility violations", async () => {
     const { container } = render(<MethodologyPage />);
     expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("MethodologyPage — run-status and not-assessable-portal content (moved from the overview's old 'Limitations' section)", () => {
+  it("notes the run status in the Known limitations section when it is not a clean 'completed' run", () => {
+    render(<MethodologyPage />);
+    const auditRun = getPublishedAuditRun();
+    const section = screen.getByRole("heading", { name: "Known limitations" }).closest("section")!;
+    if (auditRun.status !== "completed") {
+      expect(section.textContent).toMatch(new RegExp(`marked\\s*[“"]${auditRun.status}[”"]`));
+    } else {
+      expect(section.textContent).not.toMatch(/not every portal could be/);
+    }
+  });
+
+  it("names any not-assessable portal and its reason, or omits the list entirely when there are none", () => {
+    render(<MethodologyPage />);
+    const assessments = getPublishedPortalAssessments();
+    const unassessable = notAssessablePortals(assessments);
+    const section = screen.getByRole("heading", { name: "Known limitations" }).closest("section")!;
+    const lists = section.querySelectorAll("ul");
+    if (unassessable.length > 0) {
+      for (const portal of unassessable) {
+        expect(section.textContent).toContain(portal.portalName);
+      }
+      expect(lists).toHaveLength(2); // the raw limitations list, plus the not-assessable list
+    } else {
+      expect(lists).toHaveLength(1); // just the raw limitations list — no not-assessable list to render
+    }
   });
 });

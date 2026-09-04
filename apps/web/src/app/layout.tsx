@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { PRODUCT_DISCLAIMER, PRODUCT_NAME } from "@/lib/constants";
-import { getFixtureAuditRun } from "@/lib/publishedFixtures";
+import { getPublishedAuditRun } from "@/lib/publishedRun";
 import { AuditContextBanner } from "@/components/AuditContextBanner";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -40,7 +40,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // page, so this reads once here in the root layout, not per-page). See
   // src/lib/publishedFixtures.ts for the validation contract and why this
   // throws loudly rather than rendering a blank banner on bad data.
-  const auditRun = getFixtureAuditRun();
+  const auditRun = getPublishedAuditRun();
 
   return (
     <html lang="en" className={`${publicSans.variable} ${mono.variable}`}>

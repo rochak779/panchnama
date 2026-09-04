@@ -14,6 +14,8 @@ import {
   SEVERITY_CONFIDENCE_RULES,
   sortedVersionHistory,
 } from "@/lib/methodologyContent";
+import { notAssessablePortals } from "@/lib/overviewSummary";
+import { getPublishedAuditRun, getPublishedPortalAssessments } from "@/lib/publishedRun";
 import styles from "./methodology.module.css";
 
 export const metadata: Metadata = { title: "Methodology" };
@@ -26,8 +28,19 @@ export const metadata: Metadata = { title: "Methodology" };
  * page can never show a fabricated audit claim. `CURRENT_METHODOLOGY_VERSION`
  * is rendered here (never re-typed) so the version shown always matches the
  * single source of truth.
+ *
+ * "Known limitations" also renders the run-status/not-assessable-portal
+ * content that used to live in the overview's own "Limitations" section
+ * (a later relocation) — the raw `KNOWN_LIMITATIONS` list was already
+ * duplicated here; the run-specific parts (partial-run note, which
+ * portals couldn't be assessed at all) are now here too instead of
+ * split across two pages.
  */
 export default function MethodologyPage() {
+  const auditRun = getPublishedAuditRun();
+  const assessments = getPublishedPortalAssessments();
+  const isPartialRun = auditRun.status === "partial" || auditRun.status === "failed";
+  const unassessable = notAssessablePortals(assessments);
   const versionHistory = sortedVersionHistory();
 
   return (
@@ -36,7 +49,7 @@ export default function MethodologyPage() {
         <div className={styles.hero}>
           <h1>Methodology</h1>
           <p>
-            How this case study decides what counts as part of the Assam government web estate,
+            How this audit decides what counts as part of the Assam government web estate,
             what it checks, how it judges severity and confidence, and what a human reviews before
             anything is published.
           </p>
@@ -96,6 +109,24 @@ export default function MethodologyPage() {
               <li key={limitation}>{limitation}</li>
             ))}
           </ul>
+          {isPartialRun ? (
+            <p className={styles.callout}>
+              This audit run is marked &ldquo;{auditRun.status}&rdquo;: not every portal could be
+              fully assessed.
+              {unassessable.length > 0
+                ? " See below for portals that could not be fairly assessed at all."
+                : ""}
+            </p>
+          ) : null}
+          {unassessable.length > 0 ? (
+            <ul className={styles.plainList}>
+              {unassessable.map((portal) => (
+                <li key={portal.portalId}>
+                  <strong>{portal.portalName}:</strong> {portal.coverageNote}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </section>
 
         <section className={styles.section} aria-labelledby="version-history-heading">

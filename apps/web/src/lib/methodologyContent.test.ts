@@ -19,23 +19,25 @@ import {
 } from "./methodologyContent";
 
 /**
- * Reads `data/fixtures/audit-run.json` directly (not through
- * `publishedFixtures.ts`) so this test fails if the fixture changes and
- * `methodologyContent.ts` doesn't — the whole point of the "single source
- * of truth" constraint.
+ * Reads the real published `data/published/current` → `audit-run.json`
+ * directly (not through `publishedRun.ts`) so this test fails if the
+ * published run changes and `methodologyContent.ts` doesn't — the whole
+ * point of the "single source of truth" constraint.
  */
-function readAuditRunFixture(): {
+function readPublishedAuditRun(): {
   methodologyVersion: string;
   enabledChecks: string[];
   limitations: string[];
 } {
-  const path = join(process.cwd(), "..", "..", "data", "fixtures", "audit-run.json");
+  const publishedDir = join(process.cwd(), "..", "..", "data", "published");
+  const runId = readFileSync(join(publishedDir, "current"), "utf8").trim();
+  const path = join(publishedDir, runId, "audit-run.json");
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
 describe("CURRENT_METHODOLOGY_VERSION", () => {
-  it("equals data/fixtures/audit-run.json's methodologyVersion", () => {
-    const fixture = readAuditRunFixture();
+  it("equals the real published audit-run.json's methodologyVersion", () => {
+    const fixture = readPublishedAuditRun();
     expect(CURRENT_METHODOLOGY_VERSION).toBe(fixture.methodologyVersion);
   });
 
@@ -73,8 +75,8 @@ describe("sortedVersionHistory", () => {
 });
 
 describe("CHECK_DEFINITIONS", () => {
-  it("has exactly one entry per id in the fixture's enabledChecks array, no more, no fewer", () => {
-    const fixture = readAuditRunFixture();
+  it("has exactly one entry per id in the published run's enabledChecks array, no more, no fewer", () => {
+    const fixture = readPublishedAuditRun();
     const definitionIds = CHECK_DEFINITIONS.map((c) => c.id).sort();
     expect(definitionIds).toEqual([...fixture.enabledChecks].sort());
   });
@@ -88,8 +90,8 @@ describe("CHECK_DEFINITIONS", () => {
 });
 
 describe("KNOWN_LIMITATIONS", () => {
-  it("exactly equals the fixture's limitations array", () => {
-    const fixture = readAuditRunFixture();
+  it("exactly equals the published run's limitations array", () => {
+    const fixture = readPublishedAuditRun();
     expect(KNOWN_LIMITATIONS).toEqual(fixture.limitations);
   });
 });

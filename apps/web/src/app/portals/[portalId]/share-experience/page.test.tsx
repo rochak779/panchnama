@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { getFixturePortalAssessments } from "@/lib/publishedFixtures";
+import { getPublishedPortalAssessments } from "@/lib/publishedRun";
 import ShareExperiencePage, { generateMetadata, generateStaticParams } from "./page";
 
 vi.mock("next/navigation", () => ({
@@ -10,21 +10,21 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-describe("ShareExperiencePage (builds from real data/fixtures/*.json)", () => {
-  it("generates one static param per real fixture portal", () => {
+describe("ShareExperiencePage (builds from the real published audit run)", () => {
+  it("generates one static param per real published portal", () => {
     const params = generateStaticParams();
-    const assessments = getFixturePortalAssessments();
+    const assessments = getPublishedPortalAssessments();
     expect(params).toEqual(assessments.map((a) => ({ portalId: a.portal.id })));
   });
 
   it("generates page metadata using the real portal's name", () => {
-    const [first] = getFixturePortalAssessments();
+    const [first] = getPublishedPortalAssessments();
     const metadata = generateMetadata({ params: { portalId: first!.portal.id } });
     expect(metadata.title).toBe(`Share your experience — ${first!.portal.name}`);
   });
 
   it("renders the form shell for a known fixture portal", () => {
-    const [first] = getFixturePortalAssessments();
+    const [first] = getPublishedPortalAssessments();
     render(<ShareExperiencePage params={{ portalId: first!.portal.id }} />);
     expect(
       screen.getByRole("heading", {

@@ -6,15 +6,17 @@ const NAV_ITEMS = [
   { href: "/", label: "Overview" },
   { href: "/inventory", label: "Inventory" },
   { href: "/methodology", label: "Methodology" },
+  { href: "/about", label: "About" },
 ] as const;
 
 /**
  * Site header: an independent wordmark (plain text — no emblem, seal, or
  * imagery that could read as a government mark, per implementation.md
- * section 10.10) paired inline with a short "not a government website"
- * tag, plus primary navigation. `<header>`/`<nav>` landmarks are semantic,
- * not decorative, so screen-reader users can jump straight to navigation
- * (section 10.9).
+ * section 10.10), plus primary navigation. The independence disclaimer
+ * itself lives on `/about` and in the footer (`IndependenceNotice`), not
+ * repeated inline here as a header tag. `<header>`/`<nav>` landmarks are
+ * semantic, not decorative, so screen-reader users can jump straight to
+ * navigation (section 10.9).
  */
 export function SiteHeader() {
   return (
@@ -24,7 +26,6 @@ export function SiteHeader() {
           <Link href="/" className={styles.wordmark}>
             {PRODUCT_NAME}
           </Link>
-          <span className={styles.independenceTag}>Independent · not a government website</span>
         </div>
         <nav aria-label="Primary">
           <ul className={styles.nav}>
