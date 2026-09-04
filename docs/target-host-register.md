@@ -94,3 +94,16 @@ every additional host discovered before it is admitted to a crawl.
   direct fetch, pending `assam.gov.in` recovery). Sampled 6 of the
   newly-discovered hosts: 3 reachable, 3 not — geoblocking/reachability
   issues affect a meaningful minority so far, not the whole estate.
+- 2026-09-03 (session resumed) — Ran a full concurrent GET reachability
+  sweep (12s connect timeout) across all 177 portals in the real
+  inventory (`assam-20260903T104708Z`): 86 reachable, 91 unreachable
+  (mostly `CONNECT_TIMEOUT`, one `ENOTFOUND`, one TLS cert error).
+  Consistent with the earlier 6-host sample's roughly-even split. Raw
+  results: `data/raw/reachability/assam-20260903T104708Z-sweep.json`
+  (gitignored, reproducible). Per ADR 0002, the estate-wide crawl was
+  authorized for all 177 portals (batch terms-of-use spot-check rather
+  than 177 individual per-host rows below), and the 91 unreachable hosts
+  are crawled normally rather than pre-excluded — see ADR 0002 for why a
+  `disabledDomains` pre-exclusion was tried and reverted (it silently
+  produces `technicalHealth: "healthy"` for a portal that was never
+  actually checked, the opposite of the intended outcome).
