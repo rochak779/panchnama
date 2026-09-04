@@ -94,6 +94,17 @@ every additional host discovered before it is admitted to a crawl.
   direct fetch, pending `assam.gov.in` recovery). Sampled 6 of the
   newly-discovered hosts: 3 reachable, 3 not — geoblocking/reachability
   issues affect a meaningful minority so far, not the whole estate.
+- 2026-09-04 — Ran the final estate-wide crawl (`assam-2026-09-04-r1`,
+  `--max-pages 10`) after fixing two crawler bugs found in an earlier
+  same-day attempt (see `docs/session-log.md` Session 17 entry and ADR
+  0002 for full detail — an SSRF-DNS-check mislabeling and an
+  unrecognized undici timeout code, both of which made real target-site
+  outcomes look like audit-system failures or vice versa). Result: 76
+  succeeded / 9 partial / 92 failed of 177, with an honest
+  failure-cause distribution (dominated by genuine `CONNECT_TIMEOUT`).
+  All 5 originally smoke-tested `include` hosts above succeeded again,
+  confirming the fix restored correct behavior rather than just changing
+  the numbers. This is Session 17's final dated raw run.
 - 2026-09-03 (session resumed) — Ran a full concurrent GET reachability
   sweep (12s connect timeout) across all 177 portals in the real
   inventory (`assam-20260903T104708Z`): 86 reachable, 91 unreachable

@@ -4568,3 +4568,217 @@ node_modules`/`dist` wipe, not a guess), but the very first real GitHub
   for Session 20 once real participants are available; it explicitly
   notes it needs re-checking against real portal data once Session 18
   publishes.
+
+---
+
+## Session 17 — Assam source research and controlled pilot crawl
+
+**Date:** started 2026-09-01, parked mid-session, resumed and completed
+2026-09-03/04 (logged here, after Session 19, matching the order work
+actually happened in — this session was deliberately paused to let
+Session 19 run first; see implementation.md's own "Status" note on
+Session 17 for the parked-state record).
+
+**Goal:** Replace fixtures with a carefully bounded real Assam inventory
+and first raw run (implementation.md section 14 Session 17).
+
+### Files changed
+
+- `docs/architecture-decisions/0001-live-crawl-legal-risk-acceptance.md`
+  (earlier session) — the §12.5 gate for the 5-portal smoke crawl.
+- `docs/architecture-decisions/0002-estate-wide-crawl-authorization.md`
+  (new) — the separate, later sign-off §12.5 requires before the
+  estate-wide run, recorded after reviewing the smoke crawl. Documents
+  the batch-spot-check terms-of-use approach (177 hosts, not individually
+  reviewed) and the decision to attempt every portal for real rather than
+  pre-excluding unreachable ones (see Decisions).
+- `docs/target-host-register.md` — updated with the 2026-09-03/04
+  reachability sweeps and the final run's real numbers.
+- `config/crawl-policy.yaml` — briefly gained, then had reverted, a
+  `disabledDomains` entry for 91 hostnames (see Decisions: this was the
+  wrong mechanism and was never committed in that state).
+- `packages/audit-cli/src/crawl/run.ts` — added per-portal progress
+  logging to stderr (portal start, portal finish with status/timing).
+  The crawl command's own output is only written atomically at the very
+  end; a real multi-hour run with zero progress visibility was the
+  proximate cause of restarting the crawl twice before finding the real
+  bugs below.
+- `packages/audit-cli/src/crawl/ssrf.ts` (+ test) — `checkSsrf()` now
+  distinguishes a DNS lookup that *failed to resolve* (network problem,
+  now `retryable: true`) from one that *resolved to a blocked address*
+  (a genuine, permanent security determination). Both still fail closed
+  (never fetch), but only the second is treated as non-retryable.
+- `packages/audit-cli/src/crawl/http-fetcher.ts` (+ test) — routes a
+  retryable SSRF-check DNS failure to the ordinary `DNS_FAILURE` code
+  instead of the permanent `SSRF_BLOCKED` code.
+- `packages/audit-core/src/crawl-errors.ts` (+ test) — `classifyNetworkError()`
+  now recognizes undici's own internal `UND_ERR_CONNECT_TIMEOUT`/
+  `UND_ERR_HEADERS_TIMEOUT` codes (its default ~10s internal timeout,
+  distinct from this fetcher's own `requestTimeoutMs` `AbortController`)
+  as `CONNECT_TIMEOUT` instead of falling through to the
+  `INTERNAL_AUDIT_ERROR` catch-all.
+- `data/raw/inventory/assam-20260903T104708Z/` (gitignored) — the real
+  177-portal inventory, built from `igod.gov.in`.
+- `data/raw/reachability/assam-20260903T104708Z-sweep.json` (gitignored)
+  — a standalone concurrent-GET reachability sweep (86 reachable / 91
+  unreachable), run independently of the crawler itself, used only to
+  inform the ADR 0002 discussion — never used to pre-exclude hosts from
+  the actual crawl (see Decisions).
+- `data/raw/crawl/assam-2026-09-04-r1/` (gitignored) — the final dated
+  raw run: 177 portals attempted, 76 succeeded / 9 partial / 92 failed.
+  An earlier same-day run, `assam-2026-09-03-r1`, is kept on disk renamed
+  to `assam-2026-09-03-r1-INVALID-ssrf-mislabel-bug` — its 21/177
+  "succeeded" count was an artifact of the bugs above, not real data, and
+  it must never be used as this session's dataset.
+- `data/raw/analysis/assam-2026-09-04-r1/` (gitignored) — `analyze` run
+  against the corrected crawl: 2,180 candidate findings (1,646 critical,
+  1 significant, 533 advisory), dominated by `broken_link.repeated-failure.v1`
+  (1,556) and `availability.unavailable.v1` (89).
+- `implementation.md` — Session 17's status note updated from "parked"
+  to "complete," with the handoff note to Session 18/21 updated
+  accordingly.
+
+### Decisions
+
+- **Estate-wide crawl authorized in two stages, not one** (ADR 0001 for
+  the smoke crawl, ADR 0002 for the estate-wide run), per §12.5's own
+  requirement that the wider run be a separate sign-off made *after*
+  reviewing the smoke crawl — not bundled into the original approval.
+- **No Indian-hosted crawl infrastructure was provisioned** for the
+  portals unreachable from this development environment. Judged
+  disproportionate scope for a prototype case study; `not_assessable`/
+  `unavailable` are legitimate, honest published outcomes for a host
+  this environment cannot reach — not a gap to engineer around.
+- **The originally-planned `disabledDomains` pre-exclusion of unreachable
+  hosts was implemented, then reverted before being used in a real run**,
+  after tracing its actual effect through `packages/audit-core/src/rules/availability.ts`
+  and `technical-health.ts`: a domain skipped this way produces zero
+  `PageObservation`s and only an advisory `crawl_coverage` finding, which
+  derives `technicalHealth: "healthy"` — the exact opposite of the
+  intended outcome for a portal never actually checked. All 177 portals
+  are instead attempted for real every run; genuinely unreachable hosts
+  fail their real retries and surface as `unavailable`, which is both
+  more accurate and doesn't require maintaining a manually-curated
+  exclusion list that goes stale the moment a host's status changes.
+- **Two real crawler bugs were found and fixed mid-session**, both
+  discovered by the same method: a first full estate-wide run
+  (`assam-2026-09-03-r1`) produced an implausible 21/177 success rate,
+  and known-good hosts that had passed the smoke crawl hours earlier
+  (`police.assam.gov.in`, `itiassam.admissions.nic.in`, `www.aegcl.co.in`)
+  were among the "failures" — proof the numbers reflected a code defect,
+  not real site conditions, before any further investigation happened.
+  1. `ssrf.ts`'s `checkSsrf()` treated *any* DNS lookup failure
+     (including an ordinary transient one) identically to a hostname
+     that successfully resolved to a blocked private/loopback address —
+     both landed as a permanent, non-retryable `SSRF_BLOCKED` outcome.
+     133 of 366 page observations in the first run hit this path with a
+     misleading "SSRF check" label and zero retries.
+  2. `crawl-errors.ts`'s `classifyNetworkError()` didn't recognize
+     undici's own internal connect/headers timeout error codes
+     (`UND_ERR_CONNECT_TIMEOUT`/`UND_ERR_HEADERS_TIMEOUT`, ~10s default),
+     which can fire before this fetcher's own `requestTimeoutMs`
+     `AbortController` does. 23 of 366 observations fell through to the
+     `INTERNAL_AUDIT_ERROR` catch-all — a genuine target-unreachable case
+     mislabeled as an audit-system bug, and (since that code isn't in
+     `RETRYABLE_CODES`) denied retries.
+  Both bugs directly worked against this session's own exit criterion
+  ("failures in the audit system are separated from failures of target
+  websites") — they did the opposite. Both are fixed, covered by
+  regression tests built from the exact real error codes reproduced live
+  against actual hosts (not synthetic guesses), and the corrected run
+  restored all 5 originally smoke-tested hosts to success.
+- **`--max-pages 10` used for the estate-wide run**, not the
+  `config/crawl-policy.yaml` default of 40. Chosen to keep total run time
+  bounded and observable (see the progress-logging addition above) given
+  177 real portals crawled sequentially; still a legitimate "bounded
+  observed estate" run per this session's own exit criteria — nothing in
+  implementation.md section 14 requires exactly 40 pages/portal, only a
+  documented, consistent bound.
+- **Real per-portal progress logging added to `run.ts`**, writing to
+  stderr only (never touching the atomic JSON/JSONL output files), after
+  a genuinely unobservable multi-hour first attempt made it impossible to
+  distinguish "still working" from "stuck." This is now a permanent,
+  general improvement to the crawl command, not a one-off debugging hack.
+
+### Tests run and results
+
+```
+$ pnpm --filter @panchnama/audit-cli run test -- ssrf http-fetcher
+ ✓ src/crawl/ssrf.test.ts (9 tests, +2 new)
+ ✓ src/crawl/http-fetcher.test.ts (17 tests, +2 new)
+
+$ pnpm --filter @panchnama/audit-core run test
+ ✓ src/crawl-errors.test.ts (+2 new)
+ Test Files  18 passed (18) / Tests  138 passed (138)
+
+$ pnpm lint / pnpm typecheck / pnpm test / pnpm build   # all exit 0, full workspace
+```
+
+Real (not simulated) verification of both crawl bugs: reproduced
+`UND_ERR_CONNECT_TIMEOUT` live via a direct `fetch()` against a real
+unreachable host before writing the fix, and confirmed via `node -e`
+that `dns.lookup()` succeeds for hosts the buggy run had marked
+`SSRF_BLOCKED`, ruling out "the DNS really is broken" as an explanation.
+
+Manual verification of the corrected estate-wide crawl
+(`assam-2026-09-04-r1`): confirmed zero `SSRF_BLOCKED` observations (was
+133), `INTERNAL_AUDIT_ERROR` down to 1 (was 23), and all 5 originally
+smoke-tested hosts (`animalhusbandry.assam.gov.in`, `dgcd.assam.gov.in`,
+`police.assam.gov.in`, `itiassam.admissions.nic.in`, `www.aegcl.co.in`)
+succeeding with real HTTP 200 responses.
+
+### Known limitations
+
+- **~91 hosts remain unreachable from this development environment.**
+  Some are confirmed geoblocked (source-country-only reachability,
+  documented in `docs/target-host-register.md` since the original
+  sample), others may be genuinely down or misconfigured — this run does
+  not distinguish the two causes, and none were retried from
+  Indian-hosted infrastructure. These surface honestly as `unavailable`/
+  `not_assessable` findings, not silently dropped.
+- **Terms-of-use review is a batch spot-check, not per-host.** Only the
+  original 6 seed/smoke hosts have individual `docs/target-host-register.md`
+  rows with real terms/robots findings; the remaining ~171 hosts rely on
+  ADR 0002's batch reasoning (ordinary public `.gov.in`/`.nic.in`
+  informational sites, no login), not individual verification.
+- **`--max-pages 10` is narrower than `config/crawl-policy.yaml`'s
+  documented 40-page default**, chosen for this run's own bounded-time
+  reasoning (see Decisions) — a future re-crawl intending full-depth
+  coverage should use the config default or an explicit wider override,
+  not silently inherit this run's narrower bound.
+- **1,556 of 2,180 candidate findings are `broken_link.repeated-failure.v1`.**
+  This is the raw candidate count from automated link-checking across
+  67,652 checked links — it has not been reviewed, and Session 18's
+  human review (privacy check, confirming which findings are real vs.
+  noise, e.g. from redirect/tracking-parameter link variants) has not
+  happened yet. Do not treat 1,646 "critical" candidate findings as
+  1,646 real, publishable problems — that determination is Session 18's
+  job.
+- **User-Agent/contact-route gap (ADR 0001) remains unfixed**, now
+  carried across all 177 hosts instead of 5 — tracked in
+  implementation.md §18.1, not addressed by this session.
+- **The undici connect/headers-timeout fix is scoped to the two codes
+  actually reproduced and observed** (`UND_ERR_CONNECT_TIMEOUT`,
+  `UND_ERR_HEADERS_TIMEOUT`). Other undici internal error codes (e.g.
+  `UND_ERR_BODY_TIMEOUT`, `UND_ERR_SOCKET`) were not observed in this
+  run's real data and were deliberately not speculatively added —
+  revisit if a future run's `INTERNAL_AUDIT_ERROR` count looks
+  suspiciously high again.
+
+### Next session prerequisites (Session 18 — Evidence review and case-study dataset)
+
+- `data/raw/analysis/assam-2026-09-04-r1/findings.jsonl` (2,180 candidate
+  findings) is the real input Session 18 reviews — not fixtures.
+- Every finding proposed for publication needs its cited evidence
+  artifact's `privacyReviewed: true` set by a human reviewer before
+  publication, per this project's core review gate — none of that review
+  has happened yet; `data/raw/analysis/assam-2026-09-04-r1/evidence-artifacts.jsonl`
+  is all `privacyReviewed: false` by construction.
+- The dominant `broken_link.repeated-failure.v1` volume (1,556 candidates)
+  will need real review discipline to avoid rubber-stamping — Session 18
+  should sample/spot-check rather than assume every candidate is a real,
+  independent problem worth publishing individually.
+- Session 21 (case-study narrative) can now also proceed for real — its
+  prep draft (`docs/case-study-narrative-draft.md`) has explicit
+  `BLOCKED` placeholders for the hero-path/evidence/learning sections
+  that this dataset unblocks.
