@@ -104,6 +104,28 @@ Database and audit-CLI commands (`pnpm db:*`, `pnpm audit *`,
 `pnpm experiences:*`) are introduced by the sessions that build the
 database and CLI (see `docs/session-log.md`) and are not available yet.
 
+## Deploy
+
+This is a pnpm workspace monorepo; the deployable app is `apps/web`, a
+Next.js site whose audit data (portals, findings, methodology, exports) is
+built statically from `data/fixtures/*.json` at build time — no database
+is required to serve the scorecard.
+
+To deploy on Vercel:
+
+1. Import this repository into a new Vercel project.
+2. Set **Root Directory** to `apps/web`.
+3. Framework preset: Next.js (auto-detected). Build command
+   (`pnpm run build`, which runs `build:exports` then `next build`) and
+   install command are picked up automatically once the root directory is
+   set — no overrides needed.
+4. Deploy. No environment variables are required for the scorecard itself.
+
+Optional: the citizen-experience submission feature (`/api/experiences`)
+needs a Postgres database (`DATABASE_URL`, see `.env.example`) to work. If
+it isn't set, those endpoints degrade to a 503 and the rest of the site —
+including the scorecard, findings, and exports — is unaffected.
+
 ### Browser-fallback crawl tests (Playwright)
 
 The crawler's allowlisted browser-rendering fallback (implementation.md
