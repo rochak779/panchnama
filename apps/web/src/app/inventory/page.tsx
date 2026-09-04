@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import { getFixturePortalAssessments } from "@/lib/publishedFixtures";
+import { getPublishedPortalAssessments } from "@/lib/publishedRun";
 import { InventoryExplorer } from "@/components/inventory/InventoryExplorer";
 import overviewStyles from "../overview.module.css";
 
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
  * statically-rendered page.
  */
 export default function InventoryPage() {
-  const assessments = getFixturePortalAssessments();
+  const assessments = getPublishedPortalAssessments();
 
   return (
     <main id="main-content">

@@ -8,4 +8,4 @@
 export const PRODUCT_NAME = "Panchnama" as const;
 
 export const PRODUCT_DISCLAIMER =
-  "Panchnama is an independent case-study prototype and is not affiliated with or endorsed by the Government of Assam." as const;
+  "Panchnama is an independent project and is not affiliated with or endorsed by the Government of Assam." as const;

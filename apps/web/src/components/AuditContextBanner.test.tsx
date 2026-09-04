@@ -7,46 +7,32 @@ import { AuditContextBanner } from "./AuditContextBanner";
 const BASE_RUN = {
   startedAt: "2026-09-15T02:00:00Z",
   completedAt: "2026-09-15T04:30:00Z",
-  status: "partial" as const,
-  portalCount: 2,
+  geography: "assam" as const,
 };
 
 describe("AuditContextBanner", () => {
-  it("states the audit completion date in plain English", () => {
+  it("states the last-audited date in plain English", () => {
     render(<AuditContextBanner auditRun={BASE_RUN} />);
+    expect(screen.getByText("Last audited:")).toBeInTheDocument();
     expect(screen.getByText("15 September 2026")).toBeInTheDocument();
   });
 
   it("falls back to the start date, labeled, when the run has not completed", () => {
-    render(
-      <AuditContextBanner auditRun={{ ...BASE_RUN, completedAt: undefined, status: "running" }} />,
-    );
+    render(<AuditContextBanner auditRun={{ ...BASE_RUN, completedAt: undefined }} />);
     expect(screen.getByText(/started 15 September 2026/)).toBeInTheDocument();
   });
 
-  it("states estate coverage (portal count)", () => {
+  it("states coverage as the audited geography, capitalized", () => {
     render(<AuditContextBanner auditRun={BASE_RUN} />);
-    expect(screen.getByText(/2 portals in the observed estate/)).toBeInTheDocument();
+    expect(screen.getByText("Coverage:")).toBeInTheDocument();
+    expect(screen.getByText("Assam")).toBeInTheDocument();
   });
 
-  it("pluralizes a single-portal count correctly", () => {
-    render(<AuditContextBanner auditRun={{ ...BASE_RUN, portalCount: 1 }} />);
-    expect(screen.getByText(/1 portal in the observed estate/)).toBeInTheDocument();
-  });
-
-  it("links to methodology and downloads", () => {
+  it("carries no methodology/download links or portal count/run-status text of its own", () => {
     render(<AuditContextBanner auditRun={BASE_RUN} />);
-    expect(screen.getByRole("link", { name: "Methodology" })).toHaveAttribute(
-      "href",
-      "/methodology",
-    );
-    expect(screen.getByRole("link", { name: "Download data" })).toHaveAttribute("href", "/exports");
-  });
-
-  it("states the run status in plain English, not the raw enum value", () => {
-    render(<AuditContextBanner auditRun={{ ...BASE_RUN, status: "partial" }} />);
-    expect(screen.getByText("Partially completed")).toBeInTheDocument();
-    expect(screen.queryByText("partial")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.queryByText(/portal/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/partial|completed|in progress|failed/i)).not.toBeInTheDocument();
   });
 
   it("has no detectable accessibility violations", async () => {

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-www.aec.ac.in-redirect.cross-domain.v1-1273",
+  "decision": "publish",
+  "reviewedAt": "2026-09-04T15:10:53.160Z",
+  "reviewer": "claude-sonnet-5 (delegated review — advisory-tier mechanical findings; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04)",
+  "rationale": "Advisory, suggestedAction is manual_assessment (not an actionable claim); own limitations field already states a cross-domain redirect can be a legitimate rebrand/consolidation. Factual, non-attributive."
+}

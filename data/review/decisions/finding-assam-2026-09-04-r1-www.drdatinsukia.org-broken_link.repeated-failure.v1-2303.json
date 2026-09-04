@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-www.drdatinsukia.org-broken_link.repeated-failure.v1-2303",
+  "decision": "needs_more_evidence",
+  "reviewedAt": "2026-09-04T16:50:47.633Z",
+  "reviewer": "claude-sonnet-5 (delegated review; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04)",
+  "rationale": "PULLED BACK from initial 'publish' pass (Session 18): this destination (doppiat.com, a perfume/cosmetics e-commerce brand catalog) has no plausible connection to this portal's mandate (District Rural Development Agency, Tinsukia — verified official government portal). ~234 distinct doppiat.com/brand-a-z/*.html links from this single portal is a strong signal of spam-link injection or domain/site compromise, not ordinary link rot. Publishing these as routine 'broken official link' findings would understate what's actually going on and miss a more serious, differently-shaped story. Needs a human decision on how (or whether) to characterize this — possibly outside the existing finding taxonomy — before publication; see also whether the portal should be reported to the department. Not published pending that call."
+}

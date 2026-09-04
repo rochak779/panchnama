@@ -143,3 +143,59 @@
   color: var(--color-ink-secondary);
   padding-left: var(--space-5);
 }
+
+/* "At a glance" — technical health / severity / suggested action grouped
+ * side by side instead of three stacked full-width sections, so the page
+ * doesn't scroll through the same explanatory rhythm three times in a
+ * row. */
+.glanceRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+@media (max-width: 800px) {
+  .glanceRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.glanceGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.glanceGroup h2 {
+  font-size: var(--font-size-md);
+  color: var(--color-ink);
+}
+
+.glanceGroup .countGrid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Priority findings / directory mismatch summary — two related "what
+ * needs attention" lists, paired side by side on wide screens instead of
+ * one full list, then the next full list, stacked. */
+.findingsRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+
+@media (max-width: 900px) {
+  .findingsRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.moreLink {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-secondary);
+}
+
+.moreLink a {
+  color: var(--color-accent);
+}

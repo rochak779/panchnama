@@ -1,4 +1,4 @@
-import { getFixtureAuditRun } from "./publishedFixtures";
+import { getPublishedAuditRun } from "./publishedRun";
 
 /**
  * Session 16, Task 1 — the single canonical source for the methodology
@@ -9,21 +9,21 @@ import { getFixtureAuditRun } from "./publishedFixtures";
  * script, not part of the Next.js app) without pulling in any React/JSX
  * dependency.
  *
- * `CURRENT_METHODOLOGY_VERSION` must always equal
- * `data/fixtures/audit-run.json`'s `methodologyVersion` field — that
- * fixture is the "single source of truth" this session's global
- * constraints name, and `methodologyContent.test.ts` asserts the equality
- * by reading the fixture file directly, not by comparing against another
- * constant that could drift alongside this one.
+ * `CURRENT_METHODOLOGY_VERSION` must always equal the real published
+ * `data/published/current` → `audit-run.json`'s `methodologyVersion`
+ * field — that published run is the "single source of truth" this
+ * session's global constraints name, and `methodologyContent.test.ts`
+ * asserts the equality by reading that file directly, not by comparing
+ * against another constant that could drift alongside this one.
  *
  * `CHECK_DEFINITIONS` and `KNOWN_LIMITATIONS` are derived at
- * module-load/build time from the same fixture (via
- * `publishedFixtures.ts`'s already-validated `getFixtureAuditRun`) rather
+ * module-load/build time from the same published run (via
+ * `publishedRun.ts`'s already-validated `getPublishedAuditRun`) rather
  * than hand-written here, so they can never silently disagree with what
- * the rest of the app renders from that fixture.
+ * the rest of the app renders from that run.
  */
 
-export const CURRENT_METHODOLOGY_VERSION = "1.0.0";
+export const CURRENT_METHODOLOGY_VERSION = "0.1.0";
 
 export interface MethodologyVersionEntry {
   version: string;
@@ -32,7 +32,11 @@ export interface MethodologyVersionEntry {
 }
 
 export const METHODOLOGY_VERSION_HISTORY: MethodologyVersionEntry[] = [
-  { version: "1.0.0", date: "2026-09-15", summary: "Initial published methodology." },
+  {
+    version: "0.1.0",
+    date: "2026-09-04",
+    summary: "Initial published methodology — real Assam estate audit (assam-2026-09-04-r1).",
+  },
 ];
 
 /**
@@ -102,12 +106,14 @@ export interface CheckDefinition {
 }
 
 /**
- * Plain-English descriptions for every rule id currently in
- * `data/fixtures/audit-run.json`'s `enabledChecks` array, keyed by id.
- * `CHECK_DEFINITIONS` below filters this map down to exactly the ids the
- * fixture actually enables, so adding an unused entry here can never
- * silently inflate the exported list, and a fixture id missing from this
- * map fails loudly instead of rendering a blank description.
+ * Plain-English descriptions for every rule id the real published audit
+ * run's `data/published/current` → `audit-run.json` `enabledChecks` array
+ * can name, keyed by id (Session 17's real Assam crawl; see
+ * `packages/audit-core/src/rules/*.ts` for each rule's own source of
+ * truth). `CHECK_DEFINITIONS` below filters this map down to exactly the
+ * ids the published run actually enables, so adding an unused entry here
+ * can never silently inflate the exported list, and an enabled id missing
+ * from this map fails loudly instead of rendering a blank description.
  */
 const CHECK_CATALOG: Record<string, Omit<CheckDefinition, "id">> = {
   "availability.unavailable.v1": {
@@ -116,6 +122,17 @@ const CHECK_CATALOG: Record<string, Omit<CheckDefinition, "id">> = {
       "Flags a portal whose entry URL fails across three spaced automated attempts. Recorded as a " +
       "critical finding with high confidence; a single failed request is never enough on its own.",
   },
+  "availability.server-error.v1": {
+    label: "Availability — server error",
+    description:
+      "Flags a portal whose entry URL repeatedly returns a 5xx (server error) response rather than " +
+      "failing to connect at all — the server responded, but with an error.",
+  },
+  "availability.not-found.v1": {
+    label: "Availability — not found",
+    description:
+      "Flags a portal whose official entry URL repeatedly returns 404 (not found) or 410 (gone).",
+  },
   "redirect.cross-domain.v1": {
     label: "Redirect — cross-domain",
     description:
@@ -123,25 +140,71 @@ const CHECK_CATALOG: Record<string, Omit<CheckDefinition, "id">> = {
       "portal's registered hostnames. Recorded as advisory pending manual review, since a cross-domain " +
       "redirect is not automatically a problem.",
   },
-  "crawl.blocked.v1": {
-    label: "Crawl — automated access blocked",
+  "availability.automation-blocked.v1": {
+    label: "Availability — automation blocked",
     description:
-      "Flags a portal or page where automated access was blocked, for example by a bot check or CAPTCHA " +
-      "challenge, so the crawler could not fairly assess it. Recorded as not assessable rather than as a " +
-      "failure — a block on automation is not treated as evidence the portal itself is broken.",
+      "Flags a bot-check or CAPTCHA detected on the entry page. This is not treated as a confirmed " +
+      "availability failure — automation being blocked is not evidence the portal itself is broken.",
   },
-  "directory.mismatch.v1": {
-    label: "Directory mismatch",
+  "availability.access-restricted.v1": {
+    label: "Availability — access restricted",
     description:
-      "Flags a disagreement between an official directory listing and what the crawler actually " +
-      "observed: an entry pointing to an unavailable destination, a listed name and destination that " +
-      "materially disagree, a directory URL that redirects to a different service, or multiple entries " +
-      "that appear to represent the same portal.",
+      "Flags an access-restriction response (for example, a login wall) on the entry URL. Recorded " +
+      "distinctly from a confirmed availability failure, since the portal may simply require credentials " +
+      "this audit does not use.",
+  },
+  "broken_link.repeated-failure.v1": {
+    label: "Broken link — repeated failure",
+    description:
+      "Flags a link destination, reached from one or more of a portal's own pages, that repeatedly " +
+      "fails when checked. Each finding names the failing destination and every source page on the " +
+      "portal that links to it.",
+  },
+  "https.certificate-failure.v1": {
+    label: "HTTPS — certificate failure",
+    description: "Flags a certificate expiry or hostname mismatch observed while accessing the entry page.",
+  },
+  "https.no-tls-upgrade.v1": {
+    label: "HTTPS — no TLS upgrade",
+    description: "Flags a portal whose entry URL's final destination, after redirects, does not use HTTPS.",
+  },
+  "freshness.no-signal.v1": {
+    label: "Freshness — no signal",
+    description:
+      "Records, honestly, that no content-level freshness signal (a last-updated date, a dated notice) " +
+      "could be extracted this run — this audit's crawler does not yet read raw page text. Advisory, " +
+      "low confidence: it is not evidence the content is stale, only that this run could not check.",
+  },
+  "crawl_coverage.summary.v1": {
+    label: "Crawl coverage summary",
+    description:
+      "Records what this run did and did not cover for a portal: pages observed against the configured " +
+      "maximum, and how many discovered URLs were not fetched. Not a judgment — a coverage disclosure " +
+      "every other finding for the portal should be read against.",
+  },
+  "directory_mismatch.unavailable-destination.v1": {
+    label: "Directory mismatch — unavailable destination",
+    description:
+      "Flags an official directory entry that points to a destination this run independently found " +
+      "critically unavailable.",
+  },
+  "directory_mismatch.listed-vs-observed.v1": {
+    label: "Directory mismatch — listed vs. observed",
+    description:
+      "Flags a disagreement between an official directory's listed name or URL and what was actually " +
+      "observed at the portal's canonical URL — a heuristic comparison requiring manual confirmation, " +
+      "not a semantic or authoritative match.",
+  },
+  "directory_mismatch.official-portal-not-listed.v1": {
+    label: "Directory mismatch — official portal not listed",
+    description:
+      "Flags a verified official portal that is not backed by any official-directory-typed source in " +
+      "this inventory build.",
   },
 };
 
 function buildCheckDefinitions(): CheckDefinition[] {
-  const auditRun = getFixtureAuditRun();
+  const auditRun = getPublishedAuditRun();
   return auditRun.enabledChecks.map((id) => {
     const entry = CHECK_CATALOG[id];
     if (!entry) {
@@ -202,14 +265,14 @@ export const EVIDENCE_RETENTION_NOTE: string =
  * array — never hand-written here, so it cannot drift from the actual
  * run's recorded limitations.
  */
-export const KNOWN_LIMITATIONS: string[] = getFixtureAuditRun().limitations;
+export const KNOWN_LIMITATIONS: string[] = getPublishedAuditRun().limitations;
 
 /**
  * implementation.md section 12.3's disclaimer plus section 2.2's
  * out-of-scope list (no automated decisions, not a grievance channel).
  */
 export const ETHICAL_DISCLAIMER: string =
-  "Panchnama is an independent case-study prototype and is not affiliated with or endorsed by the " +
+  "Panchnama is an independent project and is not affiliated with or endorsed by the " +
   "Government of Assam. It is not an official government service and not a citizen grievance or " +
   "complaint channel — it does not track, forward, or resolve individual cases. Findings describe " +
   "observations made at the stated times and within the published audit coverage; they are not legal, " +

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-culturalaffairs.assam.gov.in-broken_link.repeated-failure.v1-107",
+  "decision": "publish",
+  "reviewedAt": "2026-09-04T16:15:30.978Z",
+  "reviewer": "claude-sonnet-5 (delegated review; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04)",
+  "rationale": "Sampled review (Session 18): evidence resolves to a real, timestamped link-check result (see cited artifact) with a genuine technical error code drawn from this finding's own summary. Not one of the two confirmed false-positive patterns (audit-crash INTERNAL_AUDIT_ERROR; x.com share-widget URLs) found during stratified sampling across 80 portals and all distinct error codes. Summary is factual, non-attributive (states the failure and error code, not intent/negligence). Published."
+}

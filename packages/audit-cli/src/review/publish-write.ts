@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { PublishedPortalAssessment } from "@panchnama/schema";
+import type { AuditRun, EvidenceArtifact, PortalOverlapComparison, PublishedPortalAssessment } from "@panchnama/schema";
 import type { PublicationSummary } from "./transform.js";
 
 /**
@@ -41,6 +41,21 @@ export function writePublishedRunAtomic(params: {
   runId: string;
   assessments: PublishedPortalAssessment[];
   summary: PublicationSummary;
+  /** Only the artifacts actually cited by a published finding or a
+   * published overlap comparison (see `transformToPublication`) — this is
+   * the ONLY evidence `data/published/` ever exposes, so the web app never
+   * has to read the raw, pre-review analysis corpus. */
+  evidenceArtifacts: EvidenceArtifact[];
+  /** Only overlap comparisons actually selected for a published assessment
+   * (§7.6's manual-review-first workflow) — usually empty. */
+  overlapComparisons: PortalOverlapComparison[];
+  /** The crawl run's own `AuditRun` record — already schema-valid, already
+   * loaded by `loadRunBundle` for `methodologyVersion`/`limitations`
+   * (see load-run.ts). Copied into `data/published/<runId>/` verbatim so
+   * the web app (which only ever reads `data/published/`, never
+   * `data/raw/`) can render audit date/status/coverage without reaching
+   * outside the published boundary. */
+  auditRun: AuditRun;
   overwrite?: boolean;
 }): { outputDir: string } {
   const finalDir = join(params.publishedDir, params.runId);
@@ -65,6 +80,21 @@ export function writePublishedRunAtomic(params: {
     writeFileSync(
       join(stagingDir, "summary.json"),
       `${JSON.stringify(params.summary, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      join(stagingDir, "evidence-artifacts.json"),
+      `${JSON.stringify(params.evidenceArtifacts, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      join(stagingDir, "overlap-comparisons.json"),
+      `${JSON.stringify(params.overlapComparisons, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      join(stagingDir, "audit-run.json"),
+      `${JSON.stringify(params.auditRun, null, 2)}\n`,
       "utf8",
     );
 

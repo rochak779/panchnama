@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactId": "evidence-finding-assam-2026-09-04-r1-dimahasao.assam.gov.in-broken_link.repeated-failure.v1-2949-2950",
+  "privacyReviewed": true,
+  "privacyReviewedAt": "2026-09-04T15:07:58.807Z",
+  "privacyReviewer": "Claude (mechanical PII scan, Session 18)",
+  "note": "Mechanical review (Session 18): artifact is structured observation metadata (error code / timestamp / URL / short anchor text), not a screenshot or raw page capture — verified by inspecting the underlying storage JSON for this artifact type. Scanned description/sourceUrl for email and Indian mobile-number patterns."
+}

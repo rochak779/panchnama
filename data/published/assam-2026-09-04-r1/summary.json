@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "runId": "assam-2026-09-04-r1",
+  "publishedAt": "2026-09-04T17:22:47.505Z",
+  "auditDate": "2026-09-04T14:42:35.711Z",
+  "methodologyVersion": "0.1.0",
+  "limitations": [
+    "Browser-mode fallback (Session 6) only fetches the single triggering page itself via Playwright — it does not expand the frontier queue or follow deeper links discovered through client-side rendering, so coverage of a client-rendered portal beyond its entry shell page remains bounded by ordinary HTTP-mode crawling.",
+    "Browser-mode fallback only activates for portals explicitly allowlisted (or override-enabled) in config, and only when the global `jsRendering.browserFallbackEnabled` switch is on; a client-rendered portal not configured this way will show reduced coverage, both for extraction and for link discovery.",
+    "Empty-shell, auth-wall, and CAPTCHA/bot-block detection (Session 6) are best-effort heuristics over rendered HTML, not guarantees — see docs/session-log.md for documented false-positive/false-negative limits.",
+    "Link checking only ever issues HEAD (falling back to GET on a 405/501) or GET requests, and only against links actually discovered in server-rendered or browser-rendered HTML — it does not simulate form submission or JS-triggered navigation.",
+    "This run's technical-health values are PROVISIONAL and pre-review: they are computed from candidate (not yet human-reviewed) findings, and are not the final published TechnicalHealth (see provisional-technical-health.json and technical-health.ts's own doc comment).",
+    "\"Spaced attempts\" for availability rules use within-run retry counts as a documented proxy for checks spread over time — true multi-run temporal spacing is not implemented this session.",
+    "Freshness-signal extraction emits only \"no_freshness_signal\" for every entry page — PageObservation does not persist raw page text at this session's boundary, so no content-level freshness extraction was performed.",
+    "Broken-link severity elevation uses the linking portal's own inventory-source type as a proxy for \"link from an official directory,\" not per-link directory provenance (not tracked at the LinkObservation level).",
+    "\"Multiple directory entries appear to represent the same portal\" (section 7.5) is not detected this session.",
+    "No rule in this registry emits a possible_overlap finding — section 7.6's manual-review-first workflow is Session 8's job."
+  ],
+  "portalCount": 177,
+  "technicalHealthCounts": {
+    "unavailable": 90,
+    "degraded": 81,
+    "healthy": 6
+  },
+  "severityCounts": {
+    "critical": 1396,
+    "significant": 1,
+    "advisory": 356
+  },
+  "suggestedActionCounts": {
+    "repair": 171,
+    "manual_assessment": 5,
+    "maintain": 1
+  }
+}

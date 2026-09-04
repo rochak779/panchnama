@@ -1,5 +1,6 @@
 import { SCHEMA_VERSIONS } from "@panchnama/schema";
 import type {
+  EvidenceArtifact,
   Finding,
   Portal,
   PortalOverlapComparison,
@@ -44,6 +45,20 @@ export function applyReviewOverride(finding: Finding, decision: ReviewDecision):
     severity: decision.overriddenSeverity ?? finding.severity,
     suggestedAction: decision.overriddenAction ?? finding.suggestedAction,
   };
+}
+
+/**
+ * Mirrors `applyReviewOverride`'s reasoning for the sibling record: a
+ * published `EvidenceArtifact` must reflect the FINAL, effective privacy
+ * decision (raw `privacyReviewed:false` + a `data/review/evidence-privacy/
+ * <id>.json` overlay marking it true), not the stale raw stub — only
+ * artifacts already confirmed effectively privacy-reviewed ever reach this
+ * function (callers filter by `isEvidenceEffectivelyPrivacyReviewed`
+ * first), so baking `privacyReviewed: true` in here is not stating
+ * anything unproven.
+ */
+export function applyPrivacyReviewOverlay(artifact: EvidenceArtifact): EvidenceArtifact {
+  return { ...artifact, privacyReviewed: true };
 }
 
 const SUGGESTED_ACTION_PRIORITY: SuggestedAction[] = [
@@ -111,10 +126,22 @@ export interface PublicationSummary {
 export function transformToPublication(
   validation: ReviewValidationResult,
   params: { crawlOutDir: string; publishedAt: string },
-): { assessments: PublishedPortalAssessment[]; summary: PublicationSummary } {
+): {
+  assessments: PublishedPortalAssessment[];
+  summary: PublicationSummary;
+  evidenceArtifacts: EvidenceArtifact[];
+  overlapComparisons: PortalOverlapComparison[];
+} {
   const { bundle } = validation;
   const portalsById = new Map(bundle.portals.map((p) => [p.id, p]));
   const evidenceById = new Map(bundle.evidenceArtifacts.map((e) => [e.id, e]));
+  // Every evidenceRef actually cited by a published finding or a published
+  // overlap comparison — the ONLY evidence this run's `data/published/`
+  // output should ever expose (§8.3 item 3: only privacy-reviewed evidence
+  // an actual publishable finding cites, nothing from a rejected/pending
+  // finding, and never the full raw 2,180-record analysis corpus).
+  const usedEvidenceIds = new Set<string>();
+  const usedComparisonsById = new Map<string, PortalOverlapComparison>();
 
   // Deterministic ordering throughout: sort portals by id, and findings
   // within a portal by finding id — never by object-key iteration order or
@@ -145,6 +172,12 @@ export function transformToPublication(
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((f) => applyReviewOverride(f, validation.decisionsByFindingId.get(f.id)!));
 
+    for (const f of publishedFindings) {
+      for (const ref of f.evidenceRefs) {
+        usedEvidenceIds.add(ref);
+      }
+    }
+
     const criticalFindingCount = publishedFindings.filter((f) => f.severity === "critical").length;
     const significantFindingCount = publishedFindings.filter(
       (f) => f.severity === "significant",
@@ -166,6 +199,12 @@ export function transformToPublication(
       validation.effectivePrivacyReviewedArtifactIds,
       evidenceById,
     );
+    if (comparison !== undefined) {
+      usedComparisonsById.set(comparison.id, comparison);
+      for (const ref of comparison.evidenceRefs) {
+        usedEvidenceIds.add(ref);
+      }
+    }
     const continuingRole =
       comparison === undefined
         ? "not_reviewed"
@@ -228,5 +267,15 @@ export function transformToPublication(
     suggestedActionCounts,
   };
 
-  return { assessments, summary };
+  const evidenceArtifacts = Array.from(usedEvidenceIds)
+    .sort((a, b) => a.localeCompare(b))
+    .map((id) => evidenceById.get(id))
+    .filter((e): e is EvidenceArtifact => e !== undefined)
+    .map(applyPrivacyReviewOverlay);
+
+  const overlapComparisons = Array.from(usedComparisonsById.values()).sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+
+  return { assessments, summary, evidenceArtifacts, overlapComparisons };
 }

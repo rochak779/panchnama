@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-startup.assam.gov.in-https.certificate-failure.v1-4355",
+  "decision": "publish",
+  "reviewedAt": "2026-09-04T15:07:58.884Z",
+  "reviewer": "claude-sonnet-5 (delegated review — availability cluster only; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04, pending his spot-check)",
+  "rationale": "Evidence verified: single certificate-failure finding, real captured TLS error. Factual, non-attributive summary."
+}

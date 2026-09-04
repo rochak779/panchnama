@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "findingId": "finding-assam-2026-09-04-r1-polcitizen.assam.gov.in-directory_mismatch.unavailable-destination.v1-4167",
+  "decision": "publish",
+  "reviewedAt": "2026-09-04T15:07:58.883Z",
+  "reviewer": "claude-sonnet-5 (delegated review — availability cluster only; per Rochak Agarwal, rochak.ag779@gmail.com, 2026-09-04, pending his spot-check)",
+  "rationale": "Advisory-severity, secondary evidence tied 1:1 to an already-reviewed availability.unavailable.v1/server-error finding for the same portal: the official directory (igod.gov.in) pointed to a destination this run independently found unavailable. Purely factual cross-reference, no independent claim beyond the already-reviewed availability finding."
+}

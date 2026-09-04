@@ -7,6 +7,7 @@ describe("web app placeholder constants", () => {
   });
 
   it("declares the independence disclaimer", () => {
-    expect(PRODUCT_DISCLAIMER).toMatch(/independent case-study prototype/);
+    expect(PRODUCT_DISCLAIMER).toMatch(/independent project/);
+    expect(PRODUCT_DISCLAIMER).not.toMatch(/case.study/i);
   });
 });

@@ -91,3 +91,12 @@ export function FileTextIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="M19.5 19.5l-4.3-4.3" />
+    </svg>
+  );
+}

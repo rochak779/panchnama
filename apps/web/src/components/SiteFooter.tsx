@@ -34,7 +34,7 @@ export function SiteFooter() {
         </nav>
         <IndependenceNotice />
         <div className={styles.footerMeta}>
-          <span>{PRODUCT_NAME} — an independent case-study prototype.</span>
+          <span>{PRODUCT_NAME} — an independent audit of the Assam government web estate.</span>
           <span>Every published finding is dated and sourced. See Methodology for details.</span>
         </div>
       </div>
