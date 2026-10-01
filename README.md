@@ -1,150 +1,89 @@
 # Panchnama
 
-Panchnama is a repeatable, evidence-backed public audit that shows which
-Assam government websites need attention, why they were flagged, and what
-should happen next — with dated evidence anyone can inspect.
+**An independent, evidence-backed audit of Assam's government websites: which ones need attention, why, and what should happen next.**
 
-It is an **independent case-study prototype**, not affiliated with or
-endorsed by the Government of Assam.
+[Live audit →](https://panchnama.vercel.app/)
+
+![Panchnama overview: technical health, findings by severity and suggested actions](docs/readme/screenshot.png)
+
+<sub>An independent case-study prototype, not affiliated with or endorsed by the Government of Assam.</sub>
 
 ## The problem
 
-Government websites are created and maintained by separate departments,
-boards, authorities, and vendors, with no readily inspectable, continuously
-reproducible view of the observed web estate. Panchnama audits an
-explicitly bounded **observed web estate** — assembled from named official
-sources — to answer questions such as:
+Government websites are built one department, board, scheme and vendor at a time, over years, and nobody owns the collection as a whole. No one can produce a dated, checkable answer to basic questions: which official portals are actually reachable today, which links send citizens to broken pages, which sites have quietly gone stale, and which ones duplicate each other.
 
-- Which official portals are reachable?
-- Which official pages lead citizens to broken destinations?
-- Which portals have HTTPS or certificate problems?
-- Which portals show credible signs of stale or obsolete content?
-- Which official websites are missing from directories, or which directory
-  entries no longer resolve?
-- Which portals appear to perform overlapping functions and deserve human
-  review?
-- What evidence supports each finding, and what action should an owner
-  consider?
+Without that answer, "improve the web estate" collapses into two weak moves: do nothing, because no one can point to a defensible list of what's broken, or launch a big redesign based on impressions rather than evidence.
 
-Panchnama also accepts anonymous, structured, moderated citizen-experience
-submissions about listed portals. These are displayed separately from
-technical findings and never automatically change an audit verdict.
+## What it does
 
-See [`implementation.md`](./implementation.md) for the full product
-definition, domain model, crawl policy, audit rules, and session-by-session
-build plan. That file is the authoritative specification for this
-repository.
+- **Builds an inventory** of government portals from named official sources, recording where and when each one was found.
+- **Checks each portal** for reachability, HTTPS and certificate problems, broken links, signs of stale content, directory mismatches and possible overlap with other portals.
+- **Backs every finding with evidence:** the URL, what was observed, when, and the rule that flagged it.
+- **Suggests an action per portal:** repair, review for consolidation, review for retirement, maintain, or needs manual assessment.
+- **Publishes the dataset and method** so anyone can check the work.
+- **Accepts anonymous citizen reports** about listed portals. These are moderated and shown separately from the technical findings.
 
-## Product principles (summary)
+## Key product decisions
 
-1. Evidence before judgment — every finding cites a URL, observation,
-   timestamp, and rule.
-2. No false precision — no composite score across unrelated checks.
-3. Uncertainty is visible — `Not assessable` and `Review required` are
-   legitimate outcomes.
-4. Observed estate, not claimed completeness.
-5. Automation collects evidence; people make policy judgments.
-6. Citizen impact drives severity, not technical novelty.
-7. A dated, repeatable snapshot — not a live monitoring service.
-8. Independent and non-official.
-9. Citizen experience is displayed separately from technical health.
-10. Privacy by default — no names, accounts, IDs, phone numbers, or
-    documents are collected.
+- **No single health score.** Combining unrelated checks into one number would look precise without being meaningful. Each finding stands on its own.
+- **Uncertainty is a real answer.** "Not assessable" and "review required" are published outcomes. A site that blocks automated checks is reported as exactly that, not marked broken or quietly skipped.
+- **Automation collects evidence; people make the calls.** The system can flag that two portals look redundant, but deciding to retire a government service stays a human decision.
+- **Citizen reports never change a verdict.** They add context next to the technical audit, not inside it.
+- **Legal risk was assessed before the first live crawl.** The crawler respects robots.txt, never logs in or submits forms, and the decision to crawl live government sites was written up and signed off first.
 
-Full detail: implementation.md section 1 and section 3 ("Locked product
-decisions").
+## Results & evidence
 
-## Repository structure
+The audit dated **4 September 2026** covered **177 portals**:
+
+| Technical health | Portals |
+|---|---|
+| Healthy | 6 |
+| Degraded | 81 |
+| Unavailable | 90 |
+
+- **1,396 critical findings**, each with dated evidence.
+- **171 portals** were given "repair" as the suggested action, and 5 need manual assessment.
+
+## Scope & limits
+
+- **A dated snapshot, not live monitoring.** Each run carries its own audit date and method version.
+- **The observed estate, not a complete inventory.** It covers what was discoverable through named official sources, not every system the government runs.
+- **Findings are observations,** not legal, security, accessibility or policy determinations.
+- **Assam only, English only.** The citizen report form is not yet in Assamese.
+
+## Next in roadmap
+
+- Repeat the method for a second state, to test whether it transfers.
+- Rerun on a schedule and show change over time across dated snapshots.
+- Add ownership and fix-tracking, so departments can respond to findings.
+
+<details>
+<summary><strong>Tech stack & running locally</strong></summary>
+
+**Stack:** pnpm monorepo. Next.js (App Router) public scorecard, a TypeScript audit CLI (inventory, crawl, analyse, publish) with a Playwright fallback for script-heavy sites, Drizzle and Postgres, Zod schemas, Vitest, GitHub Actions CI.
 
 ```text
-apps/web/                # Next.js public scorecard (App Router)
+apps/web/                # Next.js public scorecard
 packages/audit-cli/      # inventory, crawl, analyze, publish commands
 packages/audit-core/     # pure audit rules and classifiers
 packages/database/       # Drizzle schema, migrations, DB access
 packages/schema/         # shared Zod schemas and TypeScript types
-packages/ui/             # optional shared UI primitives
 config/                  # source registry and crawl/check policy
 data/                    # seed, raw, evidence, review, published, fixtures
-docs/                    # methodology, ADRs, session log, research
-scripts/                 # repository-maintenance scripts
-.github/workflows/       # CI
+docs/                    # methodology, decision records, session log
 ```
 
-This structure — and everything else in this README — implements
-implementation.md section 4.3. Most of `packages/`, `apps/web`, `config/`,
-and `data/` are currently scaffolds; see each package's `README.md` and
-`docs/session-log.md` for what has actually been built versus what is
-placeholder for a later session.
-
-## Requirements
-
-- Node.js 22 LTS or later
-- pnpm 9 or later (see `packageManager` in `package.json` for the pinned
-  version used in CI)
-
-## Local commands
+Requires Node.js 22+ and pnpm 9+.
 
 ```bash
-pnpm install       # install workspace dependencies
-
-pnpm lint          # ESLint across the whole repository
-pnpm lint:fix
-pnpm format        # Prettier — write
-pnpm format:check  # Prettier — check only
-pnpm typecheck     # tsc --noEmit in every workspace package
-pnpm test          # Vitest in every workspace package
-pnpm build         # build every workspace package (tsc / next build)
+pnpm install
+pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
-These four — `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` — are
-the quality gates that must pass before merging any session
-(implementation.md section 11.3).
+The crawler's browser-fallback tests need Chromium: `pnpm --filter @panchnama/audit-cli exec playwright install chromium`.
 
-Database and audit-CLI commands (`pnpm db:*`, `pnpm audit *`,
-`pnpm experiences:*`) are introduced by the sessions that build the
-database and CLI (see `docs/session-log.md`) and are not available yet.
+**Deploying:** import into Vercel with Root Directory `apps/web`. The scorecard is built statically from published data and needs no environment variables. Citizen reports (`/api/experiences`) need `DATABASE_URL`; without it those endpoints return 503 and the rest of the site works.
 
-## Deploy
+The full product definition, audit rules and crawl policy are in [implementation.md](implementation.md). Working with an AI coding agent: see [AGENTS.md](AGENTS.md).
 
-This is a pnpm workspace monorepo; the deployable app is `apps/web`, a
-Next.js site whose audit data (portals, findings, methodology, exports) is
-built statically from `data/fixtures/*.json` at build time — no database
-is required to serve the scorecard.
-
-To deploy on Vercel:
-
-1. Import this repository into a new Vercel project.
-2. Set **Root Directory** to `apps/web`.
-3. Framework preset: Next.js (auto-detected). `apps/web/vercel.json`
-   overrides the build command to `pnpm --filter @panchnama/web... run
-   build`, which builds `@panchnama/web`'s workspace dependencies
-   (`@panchnama/audit-cli`, `@panchnama/database`, etc. — plain `pnpm run
-   build` in `apps/web` alone doesn't compile those, since Vercel's
-   default build doesn't run the root-level recursive build) before
-   `build:exports` and `next build`. No manual overrides needed.
-4. Deploy. No environment variables are required for the scorecard itself.
-
-Optional: the citizen-experience submission feature (`/api/experiences`)
-needs a Postgres database (`DATABASE_URL`, see `.env.example`) to work. If
-it isn't set, those endpoints degrade to a 503 and the rest of the site —
-including the scorecard, findings, and exports — is unaffected.
-
-### Browser-fallback crawl tests (Playwright)
-
-The crawler's allowlisted browser-rendering fallback (implementation.md
-section 6.4) is implemented with Playwright. Its tests launch a real
-headless Chromium instance against local fixture HTTP servers only — never
-live internet targets. Before running `pnpm test` (or
-`pnpm --filter @panchnama/audit-cli test`) for the first time, install the
-Chromium browser binary:
-
-```bash
-pnpm --filter @panchnama/audit-cli exec playwright install chromium
-```
-
-CI installs this automatically (see `.github/workflows/ci.yml`).
-
-## Contributing / working with an AI coding agent
-
-See [`AGENTS.md`](./AGENTS.md) for repository-specific rules, and
-`implementation.md` section 15 for the standard per-session prompt.
+</details>
